@@ -18,6 +18,8 @@ namespace Emulator80386.App
         public Pic8259 PicMaster { get; }
         public Pic8259 PicSlave { get; }
         public Pit8253 Pit { get; }
+        public CmosRtc Cmos { get; }
+        public SystemControlPort SystemControl { get; }
         public FolderDiskController DiskC { get; }
         public VgaRenderer Vga { get; }
 
@@ -41,6 +43,13 @@ namespace Emulator80386.App
             Pit = new Pit8253();
             IOPort.RegisterDevice(0x40, Pit);
             IOPort.RegisterDevice(0x43, Pit);
+
+            Cmos = new CmosRtc(Config.RamSizeMB);
+            IOPort.RegisterDevice(0x70, Cmos);
+            IOPort.RegisterDevice(0x71, Cmos);
+
+            SystemControl = new SystemControlPort();
+            IOPort.RegisterDevice(0x92, SystemControl);
 
             DiskC = new FolderDiskController(Config.DriveCFolder);
             Vga = new VgaRenderer();
