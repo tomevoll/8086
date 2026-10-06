@@ -43,7 +43,7 @@ namespace Emulator80386.App.Memory
         {
             byte[] bios = new byte[65536];
 
-            // Setup 32-bit reset vector at offset 0xFFF0 (0xFFFFFFF0)
+            // 32-bit reset vector at offset 0xFFF0 (0xFFFFFFF0)
             // Far jump to 0xF000:0x0000 (EA 00 00 00 F0)
             bios[0xFFF0] = 0xEA;
             bios[0xFFF1] = 0x00;
@@ -56,22 +56,29 @@ namespace Emulator80386.App.Memory
             bios[ptr++] = 0xFC; // CLD
             bios[ptr++] = 0xB8; bios[ptr++] = 0x00; bios[ptr++] = 0xB8; // MOV AX, 0xB800
             bios[ptr++] = 0x8E; bios[ptr++] = 0xC0; // MOV ES, AX
+
+            // Clear Screen (2000 cells of 0x1F20: white on blue space)
+            bios[ptr++] = 0xB8; bios[ptr++] = 0x20; bios[ptr++] = 0x1F; // MOV AX, 0x1F20
             bios[ptr++] = 0xBF; bios[ptr++] = 0x00; bios[ptr++] = 0x00; // MOV DI, 0x0000
+            bios[ptr++] = 0xB9; bios[ptr++] = 0xD0; bios[ptr++] = 0x07; // MOV CX, 2000
+            bios[ptr++] = 0xF3; bios[ptr++] = 0xAB; // REP STOSW
 
-            string msg = $"PC 80386 BIOS - {ramSizeMB}MB RAM - Drive C Ready";
-            for (int i = 0; i < msg.Length; i++)
+            // Line 1: Header
+            string line1 = $"PC 80386 BIOS - {ramSizeMB}MB RAM - Drive C Ready";
+            bios[ptr++] = 0xBF; bios[ptr++] = 0x00; bios[ptr++] = 0x00; // MOV DI, 0x0000
+            for (int i = 0; i < line1.Length; i++)
             {
-                // ES: MOV byte ptr [DI], char (26 C6 05 <char>)
-                bios[ptr++] = 0x26;
-                bios[ptr++] = 0xC6; bios[ptr++] = 0x05;
-                bios[ptr++] = (byte)msg[i];
-                bios[ptr++] = 0x47; // INC DI
+                bios[ptr++] = 0x26; bios[ptr++] = 0xC6; bios[ptr++] = 0x05; bios[ptr++] = (byte)line1[i]; bios[ptr++] = 0x47;
+                bios[ptr++] = 0x26; bios[ptr++] = 0xC6; bios[ptr++] = 0x05; bios[ptr++] = 0x1F; bios[ptr++] = 0x47;
+            }
 
-                // ES: MOV byte ptr [DI], 0x1F (white on blue) (26 C6 05 1F)
-                bios[ptr++] = 0x26;
-                bios[ptr++] = 0xC6; bios[ptr++] = 0x05;
-                bios[ptr++] = 0x1F;
-                bios[ptr++] = 0x47; // INC DI
+            // Line 2: Status
+            string line2 = "Status: Initialized and Booting from Drive C...";
+            bios[ptr++] = 0xBF; bios[ptr++] = 0xA0; bios[ptr++] = 0x00; // MOV DI, 160 (row 1, col 0)
+            for (int i = 0; i < line2.Length; i++)
+            {
+                bios[ptr++] = 0x26; bios[ptr++] = 0xC6; bios[ptr++] = 0x05; bios[ptr++] = (byte)line2[i]; bios[ptr++] = 0x47;
+                bios[ptr++] = 0x26; bios[ptr++] = 0xC6; bios[ptr++] = 0x05; bios[ptr++] = 0x1E; bios[ptr++] = 0x47; // Yellow on Blue
             }
 
             // HLT

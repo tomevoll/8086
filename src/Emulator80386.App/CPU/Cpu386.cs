@@ -54,21 +54,15 @@ namespace Emulator80386.App.CPU
 
             bool operandSize32 = false;
             bool addressSize32 = false;
+            bool repPrefix = false;
             SegmentRegister? overrideSegment = null;
 
             while (true)
             {
                 byte prefix = Memory.Read8(LinearAddress(Reg.CS, Reg.EIP));
-                if (prefix == 0x66) // Operand size override
-                {
-                    operandSize32 = true;
-                    Reg.EIP++;
-                }
-                else if (prefix == 0x67) // Address size override
-                {
-                    addressSize32 = true;
-                    Reg.EIP++;
-                }
+                if (prefix == 0x66) { operandSize32 = true; Reg.EIP++; }
+                else if (prefix == 0x67) { addressSize32 = true; Reg.EIP++; }
+                else if (prefix == 0xF3 || prefix == 0xF2) { repPrefix = true; Reg.EIP++; }
                 else if (prefix == 0x2E) { overrideSegment = Reg.CS; Reg.EIP++; }
                 else if (prefix == 0x36) { overrideSegment = Reg.SS; Reg.EIP++; }
                 else if (prefix == 0x3E) { overrideSegment = Reg.DS; Reg.EIP++; }
@@ -79,10 +73,10 @@ namespace Emulator80386.App.CPU
             }
 
             byte opcode = Fetch8();
-            ExecuteOpcode(opcode, operandSize32, addressSize32, overrideSegment);
+            ExecuteOpcode(opcode, operandSize32, addressSize32, repPrefix, overrideSegment);
         }
 
-        private void ExecuteOpcode(byte opcode, bool operandSize32, bool addressSize32, SegmentRegister? overrideSeg)
+        private void ExecuteOpcode(byte opcode, bool operandSize32, bool addressSize32, bool repPrefix, SegmentRegister? overrideSeg)
         {
             SegmentRegister defaultDs = overrideSeg ?? Reg.DS;
 
@@ -119,6 +113,69 @@ namespace Emulator80386.App.CPU
                     Reg.SetFlag(EFlags.CF, true);
                     break;
 
+                // Push Segment Registers
+                case 0x06: Push16(Reg.ES.Selector); break;
+                case 0x0E: Push16(Reg.CS.Selector); break;
+                case 0x16: Push16(Reg.SS.Selector); break;
+                case 0x1E: Push16(Reg.DS.Selector); break;
+
+                // Pop Segment Registers
+                case 0x07: SetSegmentSelector(0, Pop16()); break;
+                case 0x17: SetSegmentSelector(2, Pop16()); break;
+                case 0x1F: SetSegmentSelector(3, Pop16()); break;
+
+                // XOR r/m8, r8 (0x30)
+                case 0x30:
+                    {
+                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
+                        byte val = Xor8(Memory.Read8(ea), Reg.GetGpr8(reg));
+                        Memory.Write8(ea, val);
+                    }
+                    break;
+
+                // XOR r8, r/m8 (0x32)
+                case 0x32:
+                    {
+                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
+                        byte val = Xor8(Reg.GetGpr8(reg), Memory.Read8(ea));
+                        Reg.SetGpr8(reg, val);
+                    }
+                    break;
+
+                // XOR r/m16/32, r16/32 (0x31)
+                case 0x31:
+                    {
+                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
+                        if (operandSize32)
+                        {
+                            uint val = Xor32(Memory.Read32(ea), Reg.GetGpr32(reg));
+                            Memory.Write32(ea, val);
+                        }
+                        else
+                        {
+                            ushort val = Xor16(Memory.Read16(ea), Reg.GetGpr16(reg));
+                            Memory.Write16(ea, val);
+                        }
+                    }
+                    break;
+
+                // XOR r16/32, r/m16/32 (0x33)
+                case 0x33:
+                    {
+                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
+                        if (operandSize32)
+                        {
+                            uint val = Xor32(Reg.GetGpr32(reg), Memory.Read32(ea));
+                            Reg.SetGpr32(reg, val);
+                        }
+                        else
+                        {
+                            ushort val = Xor16(Reg.GetGpr16(reg), Memory.Read16(ea));
+                            Reg.SetGpr16(reg, val);
+                        }
+                    }
+                    break;
+
                 // MOV reg8, imm8 (0xB0 .. 0xB7)
                 case var _ when (opcode >= 0xB0 && opcode <= 0xB7):
                     {
@@ -139,6 +196,40 @@ namespace Emulator80386.App.CPU
                         {
                             Reg.SetGpr16(reg, Fetch16());
                         }
+                    }
+                    break;
+
+                // MOV AL, [offset] (0xA0)
+                case 0xA0:
+                    {
+                        uint offset = addressSize32 ? Fetch32() : Fetch16();
+                        Reg.AL = Memory.Read8(LinearAddress(defaultDs, offset));
+                    }
+                    break;
+
+                // MOV AX/EAX, [offset] (0xA1)
+                case 0xA1:
+                    {
+                        uint offset = addressSize32 ? Fetch32() : Fetch16();
+                        if (operandSize32) Reg.EAX = Memory.Read32(LinearAddress(defaultDs, offset));
+                        else Reg.AX = Memory.Read16(LinearAddress(defaultDs, offset));
+                    }
+                    break;
+
+                // MOV [offset], AL (0xA2)
+                case 0xA2:
+                    {
+                        uint offset = addressSize32 ? Fetch32() : Fetch16();
+                        Memory.Write8(LinearAddress(defaultDs, offset), Reg.AL);
+                    }
+                    break;
+
+                // MOV [offset], AX/EAX (0xA3)
+                case 0xA3:
+                    {
+                        uint offset = addressSize32 ? Fetch32() : Fetch16();
+                        if (operandSize32) Memory.Write32(LinearAddress(defaultDs, offset), Reg.EAX);
+                        else Memory.Write16(LinearAddress(defaultDs, offset), Reg.AX);
                     }
                     break;
 
@@ -214,6 +305,58 @@ namespace Emulator80386.App.CPU
                         ushort val = GetSegmentSelector(sreg);
                         if (modrm >= 0xC0) Reg.SetGpr16(modrm & 7, val);
                         else Memory.Write16(GetEA(modrm, addressSize32, defaultDs), val);
+                    }
+                    break;
+
+                // STOSB (0xAA)
+                case 0xAA:
+                    {
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
+                        {
+                            Memory.Write8(LinearAddress(Reg.ES, Reg.DI), Reg.AL);
+                            Reg.DI = (ushort)(Reg.DI + step);
+                        }
+                        if (repPrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                // STOSW / STOSD (0xAB)
+                case 0xAB:
+                    {
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (operandSize32) Memory.Write32(LinearAddress(Reg.ES, Reg.EDI), Reg.EAX);
+                            else Memory.Write16(LinearAddress(Reg.ES, Reg.DI), Reg.AX);
+
+                            if (addressSize32) Reg.EDI = (uint)(Reg.EDI + step);
+                            else Reg.DI = (ushort)(Reg.DI + step);
+                        }
+                        if (repPrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                // LODSB (0xAC)
+                case 0xAC:
+                    {
+                        Reg.AL = Memory.Read8(LinearAddress(defaultDs, Reg.SI));
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        Reg.SI = (ushort)(Reg.SI + step);
+                    }
+                    break;
+
+                // LODSW / LODSD (0xAD)
+                case 0xAD:
+                    {
+                        if (operandSize32) Reg.EAX = Memory.Read32(LinearAddress(defaultDs, Reg.ESI));
+                        else Reg.AX = Memory.Read16(LinearAddress(defaultDs, Reg.SI));
+
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        if (addressSize32) Reg.ESI = (uint)(Reg.ESI + step);
+                        else Reg.SI = (ushort)(Reg.SI + step);
                     }
                     break;
 
@@ -356,6 +499,22 @@ namespace Emulator80386.App.CPU
                     else Reg.EIP = Pop16();
                     break;
 
+                // RETF (0xCB) - Far Return
+                case 0xCB:
+                    {
+                        if (operandSize32)
+                        {
+                            Reg.EIP = Pop32();
+                            SetSegmentSelector(1, (ushort)Pop32());
+                        }
+                        else
+                        {
+                            Reg.EIP = Pop16();
+                            SetSegmentSelector(1, Pop16());
+                        }
+                    }
+                    break;
+
                 // Conditional Jumps rel8 (0x70 .. 0x7F)
                 case var _ when (opcode >= 0x70 && opcode <= 0x7F):
                     {
@@ -435,14 +594,12 @@ namespace Emulator80386.App.CPU
         {
             if (Reg.ProtectedMode)
             {
-                // Basic Protected mode IDT interrupt stub
                 Push32((uint)Reg.EFlags);
                 Push32(Reg.CS.Selector);
                 Push32(Reg.EIP);
             }
             else
             {
-                // Real mode interrupt vector lookup (0x0000:vector*4)
                 Push16((ushort)Reg.EFlags);
                 Push16(Reg.CS.Selector);
                 Push16((ushort)Reg.EIP);
@@ -651,6 +808,33 @@ namespace Emulator80386.App.CPU
             Reg.SetFlag(EFlags.CF, a < b);
             Reg.SetFlag(EFlags.OF, (((a ^ b) & (a ^ (uint)res) & 0x80000000)) != 0);
             uint r = (uint)res;
+            Reg.UpdateZeroSignParity32(r);
+            return r;
+        }
+
+        private byte Xor8(byte a, byte b)
+        {
+            byte r = (byte)(a ^ b);
+            Reg.SetFlag(EFlags.CF, false);
+            Reg.SetFlag(EFlags.OF, false);
+            Reg.UpdateZeroSignParity8(r);
+            return r;
+        }
+
+        private ushort Xor16(ushort a, ushort b)
+        {
+            ushort r = (ushort)(a ^ b);
+            Reg.SetFlag(EFlags.CF, false);
+            Reg.SetFlag(EFlags.OF, false);
+            Reg.UpdateZeroSignParity16(r);
+            return r;
+        }
+
+        private uint Xor32(uint a, uint b)
+        {
+            uint r = a ^ b;
+            Reg.SetFlag(EFlags.CF, false);
+            Reg.SetFlag(EFlags.OF, false);
             Reg.UpdateZeroSignParity32(r);
             return r;
         }
