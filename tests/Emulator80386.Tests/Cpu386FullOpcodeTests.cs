@@ -64,5 +64,36 @@ namespace Emulator80386.Tests
             cpu.Step(); // SETE AL
             Assert.Equal(1, cpu.Reg.AL);
         }
+
+        [Fact]
+        public void TestPushaPopaAndRealMode32BitLinearAddress()
+        {
+            var mem = new MemoryBus(16);
+            var io = new IOPortBus();
+            var cpu = new Cpu386(mem, io);
+
+            cpu.Reg.CS.Selector = 0; cpu.Reg.CS.Base = 0; cpu.Reg.EIP = 0x1000;
+            cpu.Reg.SS.Selector = 0; cpu.Reg.SS.Base = 0; cpu.Reg.ESP = 0x2000;
+
+            cpu.Reg.EAX = 0x11112222;
+            cpu.Reg.ECX = 0x33334444;
+
+            // PUSHA (60)
+            // POPA  (61)
+            mem.Write8(0x1000, 0x60);
+            mem.Write8(0x1001, 0x61);
+
+            cpu.Step(); // PUSHA
+            Assert.Equal((uint)(0x2000 - 16), cpu.Reg.ESP);
+
+            cpu.Step(); // POPA
+            Assert.Equal(0x2000u, cpu.Reg.ESP);
+            Assert.Equal(0x11112222u, cpu.Reg.EAX);
+            Assert.Equal(0x33334444u, cpu.Reg.ECX);
+
+            // 32-bit linear address real mode test (0xB8000)
+            uint linear = cpu.LinearAddress(cpu.Reg.DS, 0xB8000);
+            Assert.Equal(0xB8000u, linear);
+        }
     }
 }

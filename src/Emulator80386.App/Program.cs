@@ -35,7 +35,7 @@ namespace Emulator80386.App
                     mb.Keyboard.EnqueueScancode(scancode);
                 });
 
-                mb.Step(instructionsCount: 1000);
+                mb.Step(instructionsCount: 20000);
 
                 display.RenderFrameBuffer(mb.Vga.PixelBuffer);
                 display.SwapBuffers();
