@@ -55,6 +55,7 @@ namespace Emulator80386.App.CPU
             bool operandSize32 = false;
             bool addressSize32 = false;
             bool repPrefix = false;
+            bool repnePrefix = false;
             SegmentRegister? overrideSegment = null;
 
             while (true)
@@ -62,7 +63,8 @@ namespace Emulator80386.App.CPU
                 byte prefix = Memory.Read8(LinearAddress(Reg.CS, Reg.EIP));
                 if (prefix == 0x66) { operandSize32 = true; Reg.EIP++; }
                 else if (prefix == 0x67) { addressSize32 = true; Reg.EIP++; }
-                else if (prefix == 0xF3 || prefix == 0xF2) { repPrefix = true; Reg.EIP++; }
+                else if (prefix == 0xF3) { repPrefix = true; Reg.EIP++; }
+                else if (prefix == 0xF2) { repnePrefix = true; Reg.EIP++; }
                 else if (prefix == 0x2E) { overrideSegment = Reg.CS; Reg.EIP++; }
                 else if (prefix == 0x36) { overrideSegment = Reg.SS; Reg.EIP++; }
                 else if (prefix == 0x3E) { overrideSegment = Reg.DS; Reg.EIP++; }
@@ -80,7 +82,7 @@ namespace Emulator80386.App.CPU
             }
             else
             {
-                ExecuteOpcode(opcode, operandSize32, addressSize32, repPrefix, overrideSegment);
+                ExecuteOpcode(opcode, operandSize32, addressSize32, repPrefix, repnePrefix, overrideSegment);
             }
         }
 
@@ -136,13 +138,41 @@ namespace Emulator80386.App.CPU
 
             switch (subOpcode)
             {
-                // LGDT / LIDT (0x0F 0x01)
+                // SLDT / STR / LLDT / LTR / VERR / VERW (0x0F 0x00)
+                case 0x00:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                    }
+                    break;
+
+                // SGDT / SIDT / LGDT / LIDT / SMSW / LMSW (0x0F 0x01)
                 case 0x01:
                     {
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        ushort limit = Memory.Read16(m.EA);
-                        uint baseAddr = Memory.Read32(m.EA + 2);
+                        if (m.Reg == 2) // LGDT
+                        {
+                            ushort limit = Memory.Read16(m.EA);
+                            uint baseAddr = Memory.Read32(m.EA + 2);
+                        }
+                        else if (m.Reg == 3) // LIDT
+                        {
+                            ushort limit = Memory.Read16(m.EA);
+                            uint baseAddr = Memory.Read32(m.EA + 2);
+                        }
+                        else if (m.Reg == 4) // SMSW
+                        {
+                            WriteRm16(m, (ushort)Reg.CR0);
+                        }
+                        else if (m.Reg == 6) // LMSW
+                        {
+                            Reg.CR0 = (Reg.CR0 & 0xFFFFFFF0u) | (uint)(ReadRm16(m) & 0x0F);
+                        }
                     }
+                    break;
+
+                // CLTS (0x0F 0x06)
+                case 0x06:
+                    Reg.CR0 &= ~8u;
                     break;
 
                 // MOV r32, CR0/CR2/CR3 (0x0F 0x20)
@@ -175,6 +205,15 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
+                // SETcc r/m8 (0x0F 0x90 .. 0x0F 0x9F)
+                case var _ when (subOpcode >= 0x90 && subOpcode <= 0x9F):
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        bool cond = CheckCondition(subOpcode & 0x0F);
+                        WriteRm8(m, (byte)(cond ? 1 : 0));
+                    }
+                    break;
+
                 // Near Jcc rel16/rel32 (0x0F 0x80 .. 0x0F 0x8F)
                 case var _ when (subOpcode >= 0x80 && subOpcode <= 0x8F):
                     {
@@ -182,6 +221,164 @@ namespace Emulator80386.App.CPU
                         if (CheckCondition(subOpcode & 0x0F))
                         {
                             AddRelEip(rel);
+                        }
+                    }
+                    break;
+
+                // BT r/m, r (0x0F 0xA3)
+                case 0xA3:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val = ReadRm32(m);
+                            int bit = (int)(Reg.GetGpr32(m.Reg) & 31);
+                            Reg.SetFlag(EFlags.CF, (val & (1u << bit)) != 0);
+                        }
+                        else
+                        {
+                            ushort val = ReadRm16(m);
+                            int bit = Reg.GetGpr16(m.Reg) & 15;
+                            Reg.SetFlag(EFlags.CF, (val & (1 << bit)) != 0);
+                        }
+                    }
+                    break;
+
+                // SHLD r/m, r, imm8 (0x0F 0xA4)
+                case 0xA4:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte cnt = (byte)(Fetch8() & 31);
+                        if (cnt > 0)
+                        {
+                            if (operandSize32)
+                            {
+                                ulong val = (((ulong)ReadRm32(m)) << 32) + (ulong)Reg.GetGpr32(m.Reg);
+                                uint res = (uint)(val >> (32 - cnt));
+                                WriteRm32(m, res);
+                            }
+                            else
+                            {
+                                uint val = (uint)((ReadRm16(m) << 16) | Reg.GetGpr16(m.Reg));
+                                ushort res = (ushort)(val >> (16 - cnt));
+                                WriteRm16(m, res);
+                            }
+                        }
+                    }
+                    break;
+
+                // BTS r/m, r (0x0F 0xAB)
+                case 0xAB:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val = ReadRm32(m);
+                            int bit = (int)(Reg.GetGpr32(m.Reg) & 31);
+                            Reg.SetFlag(EFlags.CF, (val & (1u << bit)) != 0);
+                            WriteRm32(m, val | (1u << bit));
+                        }
+                        else
+                        {
+                            ushort val = ReadRm16(m);
+                            int bit = Reg.GetGpr16(m.Reg) & 15;
+                            Reg.SetFlag(EFlags.CF, (val & (1 << bit)) != 0);
+                            WriteRm16(m, (ushort)(val | (1 << bit)));
+                        }
+                    }
+                    break;
+
+                // SHRD r/m, r, imm8 (0x0F 0xAC)
+                case 0xAC:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte cnt = (byte)(Fetch8() & 31);
+                        if (cnt > 0)
+                        {
+                            if (operandSize32)
+                            {
+                                ulong val = (((ulong)Reg.GetGpr32(m.Reg)) << 32) + (ulong)ReadRm32(m);
+                                uint res = (uint)(val >> cnt);
+                                WriteRm32(m, res);
+                            }
+                            else
+                            {
+                                uint val = (uint)((Reg.GetGpr16(m.Reg) << 16) | ReadRm16(m));
+                                ushort res = (ushort)(val >> cnt);
+                                WriteRm16(m, res);
+                            }
+                        }
+                    }
+                    break;
+
+                // IMUL r16/32, r/m16/32 (0x0F 0xAF)
+                case 0xAF:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            long res = (long)(int)Reg.GetGpr32(m.Reg) * (int)ReadRm32(m);
+                            Reg.SetGpr32(m.Reg, (uint)res);
+                            bool carry = res < int.MinValue || res > int.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                        else
+                        {
+                            int res = (short)Reg.GetGpr16(m.Reg) * (short)ReadRm16(m);
+                            Reg.SetGpr16(m.Reg, (ushort)res);
+                            bool carry = res < short.MinValue || res > short.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                    }
+                    break;
+
+                // LSS r16/32, m16:16/32 (0x0F 0xB2)
+                case 0xB2:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            Reg.SetGpr32(m.Reg, Memory.Read32(m.EA));
+                            SetSegmentSelector(2, Memory.Read16(m.EA + 4));
+                        }
+                        else
+                        {
+                            Reg.SetGpr16(m.Reg, Memory.Read16(m.EA));
+                            SetSegmentSelector(2, Memory.Read16(m.EA + 2));
+                        }
+                    }
+                    break;
+
+                // LFS r16/32, m16:16/32 (0x0F 0xB4)
+                case 0xB4:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            Reg.SetGpr32(m.Reg, Memory.Read32(m.EA));
+                            SetSegmentSelector(4, Memory.Read16(m.EA + 4));
+                        }
+                        else
+                        {
+                            Reg.SetGpr16(m.Reg, Memory.Read16(m.EA));
+                            SetSegmentSelector(4, Memory.Read16(m.EA + 2));
+                        }
+                    }
+                    break;
+
+                // LGS r16/32, m16:16/32 (0x0F 0xB5)
+                case 0xB5:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            Reg.SetGpr32(m.Reg, Memory.Read32(m.EA));
+                            SetSegmentSelector(5, Memory.Read16(m.EA + 4));
+                        }
+                        else
+                        {
+                            Reg.SetGpr16(m.Reg, Memory.Read16(m.EA));
+                            SetSegmentSelector(5, Memory.Read16(m.EA + 2));
                         }
                     }
                     break;
@@ -226,12 +423,70 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
+                // BSF r16/32, r/m16/32 (0x0F 0xBC)
+                case 0xBC:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val = ReadRm32(m);
+                            Reg.SetFlag(EFlags.ZF, val == 0);
+                            if (val != 0)
+                            {
+                                int pos = 0;
+                                while ((val & 1) == 0) { val >>= 1; pos++; }
+                                Reg.SetGpr32(m.Reg, (uint)pos);
+                            }
+                        }
+                        else
+                        {
+                            ushort val = ReadRm16(m);
+                            Reg.SetFlag(EFlags.ZF, val == 0);
+                            if (val != 0)
+                            {
+                                int pos = 0;
+                                while ((val & 1) == 0) { val >>= 1; pos++; }
+                                Reg.SetGpr16(m.Reg, (ushort)pos);
+                            }
+                        }
+                    }
+                    break;
+
+                // BSR r16/32, r/m16/32 (0x0F 0xBD)
+                case 0xBD:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val = ReadRm32(m);
+                            Reg.SetFlag(EFlags.ZF, val == 0);
+                            if (val != 0)
+                            {
+                                int pos = 31;
+                                while ((val & (1u << 31)) == 0) { val <<= 1; pos--; }
+                                Reg.SetGpr32(m.Reg, (uint)pos);
+                            }
+                        }
+                        else
+                        {
+                            ushort val = ReadRm16(m);
+                            Reg.SetFlag(EFlags.ZF, val == 0);
+                            if (val != 0)
+                            {
+                                int pos = 15;
+                                while ((val & 0x8000) == 0) { val <<= 1; pos--; }
+                                Reg.SetGpr16(m.Reg, (ushort)pos);
+                            }
+                        }
+                    }
+                    break;
+
                 default:
                     break;
             }
         }
 
-        private void ExecuteOpcode(byte opcode, bool operandSize32, bool addressSize32, bool repPrefix, SegmentRegister? overrideSeg)
+        private void ExecuteOpcode(byte opcode, bool operandSize32, bool addressSize32, bool repPrefix, bool repnePrefix, SegmentRegister? overrideSeg)
         {
             SegmentRegister defaultDs = overrideSeg ?? Reg.DS;
 
@@ -268,163 +523,337 @@ namespace Emulator80386.App.CPU
                     Reg.SetFlag(EFlags.CF, true);
                     break;
 
-                case 0x9C: // PUSHF
+                case 0xF5: // CMC
+                    Reg.SetFlag(EFlags.CF, !Reg.GetFlag(EFlags.CF));
+                    break;
+
+                case 0x27: // DAA
+                    {
+                        byte al = Reg.AL;
+                        if ((al & 0x0F) > 9 || Reg.GetFlag(EFlags.AF)) { Reg.AL += 6; Reg.SetFlag(EFlags.AF, true); }
+                        if (al > 0x99 || Reg.GetFlag(EFlags.CF)) { Reg.AL += 0x60; Reg.SetFlag(EFlags.CF, true); }
+                        Reg.UpdateZeroSignParity8(Reg.AL);
+                    }
+                    break;
+
+                case 0x2F: // DAS
+                    {
+                        byte al = Reg.AL;
+                        if ((al & 0x0F) > 9 || Reg.GetFlag(EFlags.AF)) { Reg.AL -= 6; Reg.SetFlag(EFlags.AF, true); }
+                        if (al > 0x99 || Reg.GetFlag(EFlags.CF)) { Reg.AL -= 0x60; Reg.SetFlag(EFlags.CF, true); }
+                        Reg.UpdateZeroSignParity8(Reg.AL);
+                    }
+                    break;
+
+                case 0x37: // AAA
+                    if ((Reg.AL & 0x0F) > 9 || Reg.GetFlag(EFlags.AF))
+                    {
+                        Reg.AL = (byte)((Reg.AL + 6) & 0x0F);
+                        Reg.AH++;
+                        Reg.SetFlag(EFlags.AF, true); Reg.SetFlag(EFlags.CF, true);
+                    }
+                    else { Reg.AL &= 0x0F; Reg.SetFlag(EFlags.AF, false); Reg.SetFlag(EFlags.CF, false); }
+                    break;
+
+                case 0x3F: // AAS
+                    if ((Reg.AL & 0x0F) > 9 || Reg.GetFlag(EFlags.AF))
+                    {
+                        Reg.AL = (byte)((Reg.AL - 6) & 0x0F);
+                        Reg.AH--;
+                        Reg.SetFlag(EFlags.AF, true); Reg.SetFlag(EFlags.CF, true);
+                    }
+                    else { Reg.AL &= 0x0F; Reg.SetFlag(EFlags.AF, false); Reg.SetFlag(EFlags.CF, false); }
+                    break;
+
+                case 0xD4: // AAM
+                    {
+                        byte baseVal = Fetch8();
+                        if (baseVal != 0)
+                        {
+                            Reg.AH = (byte)(Reg.AL / baseVal);
+                            Reg.AL = (byte)(Reg.AL % baseVal);
+                            Reg.UpdateZeroSignParity8(Reg.AL);
+                        }
+                    }
+                    break;
+
+                case 0xD5: // AAD
+                    {
+                        byte baseVal = Fetch8();
+                        Reg.AL = (byte)((Reg.AH * baseVal) + Reg.AL);
+                        Reg.AH = 0;
+                        Reg.UpdateZeroSignParity8(Reg.AL);
+                    }
+                    break;
+
+                case 0xD7: // XLAT
+                    Reg.AL = Memory.Read8(LinearAddress(defaultDs, (uint)(Reg.BX + Reg.AL)));
+                    break;
+
+                case 0x98: // CBW / CWDE
+                    if (operandSize32) Reg.EAX = (uint)(int)(short)Reg.AX;
+                    else Reg.AX = (ushort)(short)(sbyte)Reg.AL;
+                    break;
+
+                case 0x99: // CWD / CDQ
+                    if (operandSize32) Reg.EDX = (Reg.EAX & 0x80000000) != 0 ? 0xFFFFFFFFu : 0u;
+                    else Reg.DX = (Reg.AX & 0x8000) != 0 ? (ushort)0xFFFF : (ushort)0;
+                    break;
+
+                case 0xC4: // LES r16/32, m16:16/32
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            Reg.SetGpr32(m.Reg, Memory.Read32(m.EA));
+                            SetSegmentSelector(0, Memory.Read16(m.EA + 4));
+                        }
+                        else
+                        {
+                            Reg.SetGpr16(m.Reg, Memory.Read16(m.EA));
+                            SetSegmentSelector(0, Memory.Read16(m.EA + 2));
+                        }
+                    }
+                    break;
+
+                case 0xC5: // LDS r16/32, m16:16/32
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            Reg.SetGpr32(m.Reg, Memory.Read32(m.EA));
+                            SetSegmentSelector(3, Memory.Read16(m.EA + 4));
+                        }
+                        else
+                        {
+                            Reg.SetGpr16(m.Reg, Memory.Read16(m.EA));
+                            SetSegmentSelector(3, Memory.Read16(m.EA + 2));
+                        }
+                    }
+                    break;
+
+                case 0x69: // IMUL r16/32, r/m16/32, imm16/32
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint src = ReadRm32(m);
+                            int imm = (int)Fetch32();
+                            long res = (long)(int)src * imm;
+                            Reg.SetGpr32(m.Reg, (uint)res);
+                            bool carry = res < int.MinValue || res > int.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                        else
+                        {
+                            ushort src = ReadRm16(m);
+                            short imm = (short)Fetch16();
+                            int res = (short)src * imm;
+                            Reg.SetGpr16(m.Reg, (ushort)res);
+                            bool carry = res < short.MinValue || res > short.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                    }
+                    break;
+
+                case 0x6B: // IMUL r16/32, r/m16/32, imm8
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        sbyte imm8 = (sbyte)Fetch8();
+                        if (operandSize32)
+                        {
+                            uint src = ReadRm32(m);
+                            long res = (long)(int)src * imm8;
+                            Reg.SetGpr32(m.Reg, (uint)res);
+                            bool carry = res < int.MinValue || res > int.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                        else
+                        {
+                            ushort src = ReadRm16(m);
+                            int res = (short)src * imm8;
+                            Reg.SetGpr16(m.Reg, (ushort)res);
+                            bool carry = res < short.MinValue || res > short.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                    }
+                    break;
+
+                case 0x9C: // PUSHF / PUSHFD
                     if (operandSize32) Push32((uint)Reg.EFlags);
                     else Push16((ushort)Reg.EFlags);
                     break;
 
-                case 0x9D: // POPF
+                case 0x9D: // POPF / POPFD
                     if (operandSize32) Reg.EFlags = (EFlags)Pop32();
                     else Reg.EFlags = (EFlags)Pop16();
                     break;
 
-                case 0x9E: // SAHF
-                    Reg.EFlags = (Reg.EFlags & (EFlags)0xFFFFFF00) | (EFlags)Reg.AH;
-                    break;
-
-                case 0x9F: // LAHF
-                    Reg.AH = (byte)((uint)Reg.EFlags & 0xFF);
-                    break;
-
-                case 0x60: // PUSHA / PUSHAD
-                    if (operandSize32)
+                case 0x6C: // INSB
                     {
-                        uint tempSp = Reg.ESP;
-                        Push32(Reg.EAX); Push32(Reg.ECX); Push32(Reg.EDX); Push32(Reg.EBX);
-                        Push32(tempSp); Push32(Reg.EBP); Push32(Reg.ESI); Push32(Reg.EDI);
-                    }
-                    else
-                    {
-                        ushort tempSp = Reg.SP;
-                        Push16(Reg.AX); Push16(Reg.CX); Push16(Reg.DX); Push16(Reg.BX);
-                        Push16(tempSp); Push16(Reg.BP); Push16(Reg.SI); Push16(Reg.DI);
-                    }
-                    break;
-
-                case 0x61: // POPA / POPAD
-                    if (operandSize32)
-                    {
-                        Reg.EDI = Pop32(); Reg.ESI = Pop32(); Reg.EBP = Pop32(); Pop32();
-                        Reg.EBX = Pop32(); Reg.EDX = Pop32(); Reg.ECX = Pop32(); Reg.EAX = Pop32();
-                    }
-                    else
-                    {
-                        Reg.DI = Pop16(); Reg.SI = Pop16(); Reg.BP = Pop16(); Pop16();
-                        Reg.BX = Pop16(); Reg.DX = Pop16(); Reg.CX = Pop16(); Reg.AX = Pop16();
-                    }
-                    break;
-
-                case 0xC9: // LEAVE
-                    Reg.ESP = Reg.EBP;
-                    if (operandSize32) Reg.EBP = Pop32();
-                    else Reg.BP = Pop16();
-                    break;
-
-                // PUSH imm16/32 (0x68)
-                case 0x68:
-                    if (operandSize32) Push32(Fetch32());
-                    else Push16(Fetch16());
-                    break;
-
-                // PUSH imm8 (0x6A)
-                case 0x6A:
-                    {
-                        sbyte imm8 = (sbyte)Fetch8();
-                        if (operandSize32) Push32((uint)(int)imm8);
-                        else Push16((ushort)(short)imm8);
-                    }
-                    break;
-
-                // XCHG r/m8, r8 (0x86)
-                case 0x86:
-                    {
-                        ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        byte val1 = ReadRm8(m);
-                        byte val2 = Reg.GetGpr8(m.Reg);
-                        WriteRm8(m, val2);
-                        Reg.SetGpr8(m.Reg, val1);
-                    }
-                    break;
-
-                // XCHG r/m16/32, r16/32 (0x87)
-                case 0x87:
-                    {
-                        ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        if (operandSize32)
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
                         {
-                            uint val1 = ReadRm32(m);
-                            uint val2 = Reg.GetGpr32(m.Reg);
-                            WriteRm32(m, val2);
-                            Reg.SetGpr32(m.Reg, val1);
+                            Memory.Write8(LinearAddress(Reg.ES, Reg.DI), IOPort.In8(Reg.DX));
+                            Reg.DI = (ushort)(Reg.DI + step);
                         }
-                        else
-                        {
-                            ushort val1 = ReadRm16(m);
-                            ushort val2 = Reg.GetGpr16(m.Reg);
-                            WriteRm16(m, val2);
-                            Reg.SetGpr16(m.Reg, val1);
-                        }
+                        if (repPrefix) Reg.CX = 0;
                     }
                     break;
 
-                // XCHG AX/EAX, reg16/32 (0x91 .. 0x97)
-                case var _ when (opcode >= 0x91 && opcode <= 0x97):
+                case 0x6D: // INSW / INSD
                     {
-                        int reg = opcode - 0x90;
-                        if (operandSize32)
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
                         {
-                            uint tmp = Reg.EAX;
-                            Reg.EAX = Reg.GetGpr32(reg);
-                            Reg.SetGpr32(reg, tmp);
+                            if (operandSize32) Memory.Write32(LinearAddress(Reg.ES, Reg.EDI), IOPort.In32(Reg.DX));
+                            else Memory.Write16(LinearAddress(Reg.ES, Reg.DI), IOPort.In16(Reg.DX));
+
+                            if (addressSize32) Reg.EDI = (uint)(Reg.EDI + step);
+                            else Reg.DI = (ushort)(Reg.DI + step);
                         }
-                        else
-                        {
-                            ushort tmp = Reg.AX;
-                            Reg.AX = Reg.GetGpr16(reg);
-                            Reg.SetGpr16(reg, tmp);
-                        }
+                        if (repPrefix) Reg.CX = 0;
                     }
                     break;
 
-                // CALL FAR ptr16:16 / ptr16:32 (0x9A)
-                case 0x9A:
+                case 0x6E: // OUTSB
                     {
-                        if (operandSize32)
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
                         {
-                            uint newEip = Fetch32();
-                            ushort newCs = Fetch16();
-                            Push32(Reg.CS.Selector);
-                            Push32(Reg.EIP);
-                            SetSegmentSelector(1, newCs);
-                            Reg.EIP = newEip;
+                            IOPort.Out8(Reg.DX, Memory.Read8(LinearAddress(defaultDs, Reg.SI)));
+                            Reg.SI = (ushort)(Reg.SI + step);
                         }
-                        else
-                        {
-                            ushort newIp = Fetch16();
-                            ushort newCs = Fetch16();
-                            Push16(Reg.CS.Selector);
-                            Push16((ushort)Reg.EIP);
-                            SetSegmentSelector(1, newCs);
-                            Reg.EIP = newIp;
-                        }
+                        if (repPrefix) Reg.CX = 0;
                     }
                     break;
 
-                // IRET (0xCF)
-                case 0xCF:
+                case 0x6F: // OUTSW / OUTSD
                     {
-                        if (operandSize32)
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
                         {
-                            Reg.EIP = Pop32();
-                            SetSegmentSelector(1, (ushort)Pop32());
-                            Reg.EFlags = (EFlags)Pop32();
+                            if (operandSize32) IOPort.Out32(Reg.DX, Memory.Read32(LinearAddress(defaultDs, Reg.ESI)));
+                            else IOPort.Out16(Reg.DX, Memory.Read16(LinearAddress(defaultDs, Reg.SI)));
+
+                            if (addressSize32) Reg.ESI = (uint)(Reg.ESI + step);
+                            else Reg.SI = (ushort)(Reg.SI + step);
                         }
-                        else
+                        if (repPrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xA4: // MOVSB
+                    {
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
                         {
-                            Reg.EIP = Pop16();
-                            SetSegmentSelector(1, Pop16());
-                            Reg.EFlags = (EFlags)Pop16();
+                            Memory.Write8(LinearAddress(Reg.ES, Reg.DI), Memory.Read8(LinearAddress(defaultDs, Reg.SI)));
+                            Reg.SI = (ushort)(Reg.SI + step);
+                            Reg.DI = (ushort)(Reg.DI + step);
                         }
+                        if (repPrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xA5: // MOVSW / MOVSD
+                    {
+                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (operandSize32) Memory.Write32(LinearAddress(Reg.ES, Reg.EDI), Memory.Read32(LinearAddress(defaultDs, Reg.ESI)));
+                            else Memory.Write16(LinearAddress(Reg.ES, Reg.DI), Memory.Read16(LinearAddress(defaultDs, Reg.SI)));
+
+                            if (addressSize32)
+                            {
+                                Reg.ESI = (uint)(Reg.ESI + step);
+                                Reg.EDI = (uint)(Reg.EDI + step);
+                            }
+                            else
+                            {
+                                Reg.SI = (ushort)(Reg.SI + step);
+                                Reg.DI = (ushort)(Reg.DI + step);
+                            }
+                        }
+                        if (repPrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xA6: // CMPSB
+                    {
+                        int count = (repPrefix || repnePrefix) ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
+                        {
+                            byte b1 = Memory.Read8(LinearAddress(defaultDs, Reg.SI));
+                            byte b2 = Memory.Read8(LinearAddress(Reg.ES, Reg.DI));
+                            Sub8(b1, b2);
+                            Reg.SI = (ushort)(Reg.SI + step);
+                            Reg.DI = (ushort)(Reg.DI + step);
+                            if (repPrefix && !Reg.GetFlag(EFlags.ZF)) break;
+                            if (repnePrefix && Reg.GetFlag(EFlags.ZF)) break;
+                        }
+                        if (repPrefix || repnePrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xA7: // CMPSW / CMPSD
+                    {
+                        int count = (repPrefix || repnePrefix) ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (operandSize32) Sub32(Memory.Read32(LinearAddress(defaultDs, Reg.ESI)), Memory.Read32(LinearAddress(Reg.ES, Reg.EDI)));
+                            else Sub16(Memory.Read16(LinearAddress(defaultDs, Reg.SI)), Memory.Read16(LinearAddress(Reg.ES, Reg.DI)));
+
+                            if (addressSize32) { Reg.ESI = (uint)(Reg.ESI + step); Reg.EDI = (uint)(Reg.EDI + step); }
+                            else { Reg.SI = (ushort)(Reg.SI + step); Reg.DI = (ushort)(Reg.DI + step); }
+
+                            if (repPrefix && !Reg.GetFlag(EFlags.ZF)) break;
+                            if (repnePrefix && Reg.GetFlag(EFlags.ZF)) break;
+                        }
+                        if (repPrefix || repnePrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xAE: // SCASB
+                    {
+                        int count = (repPrefix || repnePrefix) ? (int)Reg.CX : 1;
+                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
+                        for (int i = 0; i < count; i++)
+                        {
+                            byte val = Memory.Read8(LinearAddress(Reg.ES, Reg.DI));
+                            Sub8(Reg.AL, val);
+                            Reg.DI = (ushort)(Reg.DI + step);
+                            if (repPrefix && !Reg.GetFlag(EFlags.ZF)) break;
+                            if (repnePrefix && Reg.GetFlag(EFlags.ZF)) break;
+                        }
+                        if (repPrefix || repnePrefix) Reg.CX = 0;
+                    }
+                    break;
+
+                case 0xAF: // SCASW / SCASD
+                    {
+                        int count = (repPrefix || repnePrefix) ? (int)Reg.CX : 1;
+                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (operandSize32) Sub32(Reg.EAX, Memory.Read32(LinearAddress(Reg.ES, Reg.EDI)));
+                            else Sub16(Reg.AX, Memory.Read16(LinearAddress(Reg.ES, Reg.DI)));
+
+                            if (addressSize32) Reg.EDI = (uint)(Reg.EDI + step);
+                            else Reg.DI = (ushort)(Reg.DI + step);
+
+                            if (repPrefix && !Reg.GetFlag(EFlags.ZF)) break;
+                            if (repnePrefix && Reg.GetFlag(EFlags.ZF)) break;
+                        }
+                        if (repPrefix || repnePrefix) Reg.CX = 0;
                     }
                     break;
 
@@ -670,17 +1099,6 @@ namespace Emulator80386.App.CPU
                                 }
                             }
                         }
-                    }
-                    break;
-
-                // LEA r16/32, m (0x8D)
-                case 0x8D:
-                    {
-                        byte modrm = Fetch8();
-                        int reg = (modrm >> 3) & 7;
-                        uint ea = GetEA((modrm >> 6) & 3, modrm & 7, addressSize32, defaultDs);
-                        if (operandSize32) Reg.SetGpr32(reg, ea);
-                        else Reg.SetGpr16(reg, (ushort)ea);
                     }
                     break;
 
@@ -958,58 +1376,6 @@ namespace Emulator80386.App.CPU
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
                         ushort val = GetSegmentSelector(m.Reg);
                         WriteRm16(m, val);
-                    }
-                    break;
-
-                // STOSB (0xAA)
-                case 0xAA:
-                    {
-                        int count = repPrefix ? (int)Reg.CX : 1;
-                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
-                        for (int i = 0; i < count; i++)
-                        {
-                            Memory.Write8(LinearAddress(Reg.ES, Reg.DI), Reg.AL);
-                            Reg.DI = (ushort)(Reg.DI + step);
-                        }
-                        if (repPrefix) Reg.CX = 0;
-                    }
-                    break;
-
-                // STOSW / STOSD (0xAB)
-                case 0xAB:
-                    {
-                        int count = repPrefix ? (int)Reg.CX : 1;
-                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
-                        for (int i = 0; i < count; i++)
-                        {
-                            if (operandSize32) Memory.Write32(LinearAddress(Reg.ES, Reg.EDI), Reg.EAX);
-                            else Memory.Write16(LinearAddress(Reg.ES, Reg.DI), Reg.AX);
-
-                            if (addressSize32) Reg.EDI = (uint)(Reg.EDI + step);
-                            else Reg.DI = (ushort)(Reg.DI + step);
-                        }
-                        if (repPrefix) Reg.CX = 0;
-                    }
-                    break;
-
-                // LODSB (0xAC)
-                case 0xAC:
-                    {
-                        Reg.AL = Memory.Read8(LinearAddress(defaultDs, Reg.SI));
-                        int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
-                        Reg.SI = (ushort)(Reg.SI + step);
-                    }
-                    break;
-
-                // LODSW / LODSD (0xAD)
-                case 0xAD:
-                    {
-                        if (operandSize32) Reg.EAX = Memory.Read32(LinearAddress(defaultDs, Reg.ESI));
-                        else Reg.AX = Memory.Read16(LinearAddress(defaultDs, Reg.SI));
-
-                        int step = (Reg.GetFlag(EFlags.DF) ? -1 : 1) * (operandSize32 ? 4 : 2);
-                        if (addressSize32) Reg.ESI = (uint)(Reg.ESI + step);
-                        else Reg.SI = (ushort)(Reg.SI + step);
                     }
                     break;
 
@@ -1363,67 +1729,6 @@ namespace Emulator80386.App.CPU
             _ => src
         };
 
-        private uint GetEA(int mod, int rm, bool addressSize32, SegmentRegister defaultSeg)
-        {
-            if (!addressSize32)
-            {
-                ushort offset = rm switch
-                {
-                    0 => (ushort)(Reg.BX + Reg.SI),
-                    1 => (ushort)(Reg.BX + Reg.DI),
-                    2 => (ushort)(Reg.BP + Reg.SI),
-                    3 => (ushort)(Reg.BP + Reg.DI),
-                    4 => Reg.SI,
-                    5 => Reg.DI,
-                    6 => (mod == 0) ? Fetch16() : Reg.BP,
-                    7 => Reg.BX,
-                    _ => 0
-                };
-
-                if (mod == 1) offset += (ushort)(sbyte)Fetch8();
-                else if (mod == 2) offset += Fetch16();
-
-                SegmentRegister seg = (rm == 2 || rm == 3 || (rm == 6 && mod != 0)) ? Reg.SS : defaultSeg;
-                return LinearAddress(seg, offset);
-            }
-            else
-            {
-                uint offset;
-                if (rm == 4) // SIB byte
-                {
-                    byte sib = Fetch8();
-                    int scale = (sib >> 6) & 3;
-                    int indexReg = (sib >> 3) & 7;
-                    int baseReg = sib & 7;
-
-                    uint baseVal = (baseReg == 5 && mod == 0) ? Fetch32() : Reg.GetGpr32(baseReg);
-                    uint indexVal = (indexReg == 4) ? 0 : Reg.GetGpr32(indexReg);
-
-                    offset = baseVal + (indexVal << scale);
-                }
-                else
-                {
-                    offset = rm switch
-                    {
-                        0 => Reg.EAX,
-                        1 => Reg.ECX,
-                        2 => Reg.EDX,
-                        3 => Reg.EBX,
-                        4 => Reg.ESP,
-                        5 => (mod == 0) ? Fetch32() : Reg.EBP,
-                        6 => Reg.ESI,
-                        7 => Reg.EDI,
-                        _ => 0
-                    };
-                }
-
-                if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
-                else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
-
-                return LinearAddress(defaultSeg, offset);
-            }
-        }
-
         public void TriggerInterrupt(byte vector)
         {
             if (Reg.ProtectedMode)
@@ -1504,6 +1809,67 @@ namespace Emulator80386.App.CPU
             5 => Reg.GS.Selector,
             _ => Reg.DS.Selector
         };
+
+        private uint GetEA(int mod, int rm, bool addressSize32, SegmentRegister defaultSeg)
+        {
+            if (!addressSize32)
+            {
+                ushort offset = rm switch
+                {
+                    0 => (ushort)(Reg.BX + Reg.SI),
+                    1 => (ushort)(Reg.BX + Reg.DI),
+                    2 => (ushort)(Reg.BP + Reg.SI),
+                    3 => (ushort)(Reg.BP + Reg.DI),
+                    4 => Reg.SI,
+                    5 => Reg.DI,
+                    6 => (mod == 0) ? Fetch16() : Reg.BP,
+                    7 => Reg.BX,
+                    _ => 0
+                };
+
+                if (mod == 1) offset += (ushort)(sbyte)Fetch8();
+                else if (mod == 2) offset += Fetch16();
+
+                SegmentRegister seg = (rm == 2 || rm == 3 || (rm == 6 && mod != 0)) ? Reg.SS : defaultSeg;
+                return LinearAddress(seg, offset);
+            }
+            else
+            {
+                uint offset;
+                if (rm == 4) // SIB byte
+                {
+                    byte sib = Fetch8();
+                    int scale = (sib >> 6) & 3;
+                    int indexReg = (sib >> 3) & 7;
+                    int baseReg = sib & 7;
+
+                    uint baseVal = (baseReg == 5 && mod == 0) ? Fetch32() : Reg.GetGpr32(baseReg);
+                    uint indexVal = (indexReg == 4) ? 0 : Reg.GetGpr32(indexReg);
+
+                    offset = baseVal + (indexVal << scale);
+                }
+                else
+                {
+                    offset = rm switch
+                    {
+                        0 => Reg.EAX,
+                        1 => Reg.ECX,
+                        2 => Reg.EDX,
+                        3 => Reg.EBX,
+                        4 => Reg.ESP,
+                        5 => (mod == 0) ? Fetch32() : Reg.EBP,
+                        6 => Reg.ESI,
+                        7 => Reg.EDI,
+                        _ => 0
+                    };
+                }
+
+                if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
+                else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
+
+                return LinearAddress(defaultSeg, offset);
+            }
+        }
 
         private bool CheckCondition(int cond) => cond switch
         {
