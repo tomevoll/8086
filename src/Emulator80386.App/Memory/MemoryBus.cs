@@ -6,6 +6,7 @@ namespace Emulator80386.App.Memory
     {
         public byte[] Ram { get; }
         public byte[] Vram { get; } = new byte[128 * 1024]; // 0xA0000 - 0xBFFFF (128 KB)
+        public byte[] OptionRom { get; } = new byte[128 * 1024]; // 0xC0000 - 0xDFFFF (128 KB)
         public byte[] BiosRom { get; } = new byte[128 * 1024]; // 0xE0000 - 0xFFFFF (128 KB)
 
         public MemoryBus(int ramSizeMB)
@@ -18,9 +19,22 @@ namespace Emulator80386.App.Memory
         {
             if (romData == null || romData.Length == 0) return;
             int copyLength = Math.Min(romData.Length, BiosRom.Length);
-            // Place ROM at the top of the 128KB BIOS area (0xE0000 - 0xFFFFF)
             int offset = BiosRom.Length - copyLength;
             Array.Copy(romData, 0, BiosRom, offset, copyLength);
+        }
+
+        public void LoadVgaOptionRom(byte[] romData)
+        {
+            if (romData == null || romData.Length == 0) return;
+            int copyLength = Math.Min(romData.Length, 32 * 1024); // Up to 32KB at 0xC0000
+            Array.Copy(romData, 0, OptionRom, 0, copyLength);
+        }
+
+        public void LoadIdeOptionRom(byte[] romData)
+        {
+            if (romData == null || romData.Length == 0) return;
+            int copyLength = Math.Min(romData.Length, 16 * 1024); // Up to 16KB at 0xC8000
+            Array.Copy(romData, 0, OptionRom, 0x8000, copyLength);
         }
 
         public byte Read8(uint address)
@@ -37,6 +51,13 @@ namespace Emulator80386.App.Memory
             {
                 uint vramOffset = address - 0xA0000;
                 return Vram[vramOffset % Vram.Length];
+            }
+
+            // Option ROMs (0xC0000 - 0xDFFFF)
+            if (address >= 0xC0000 && address <= 0xDFFFF)
+            {
+                uint optOffset = address - 0xC0000;
+                return OptionRom[optOffset % OptionRom.Length];
             }
 
             // BIOS ROM (0xE0000 - 0xFFFFF)
@@ -65,8 +86,8 @@ namespace Emulator80386.App.Memory
                 return;
             }
 
-            // BIOS ROM area is read-only
-            if ((address >= 0xE0000 && address <= 0xFFFFF) || address >= 0xFFFE0000)
+            // ROM areas (0xC0000 - 0xFFFFF & 0xFFFE0000+) are read-only
+            if ((address >= 0xC0000 && address <= 0xFFFFF) || address >= 0xFFFE0000)
             {
                 return;
             }

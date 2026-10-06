@@ -39,6 +39,40 @@ namespace Emulator80386.App.Memory
             return GenerateOpenBios(config.RamSizeMB);
         }
 
+        public static byte[] LoadOrGenerateVgaOptionRom(string vgaRomPath)
+        {
+            if (!string.IsNullOrEmpty(vgaRomPath) && File.Exists(vgaRomPath))
+            {
+                return File.ReadAllBytes(vgaRomPath);
+            }
+
+            // Generate standard VGA Option ROM at 0xC0000 (32KB / 64 blocks of 512 bytes)
+            byte[] vgaRom = new byte[32 * 1024];
+            vgaRom[0] = 0x55; // Magic byte 1
+            vgaRom[1] = 0xAA; // Magic byte 2
+            vgaRom[2] = 0x40; // Length = 64 * 512 bytes = 32KB
+            vgaRom[3] = 0xCB; // RETF (Return Far immediately upon BIOS POST call)
+
+            return vgaRom;
+        }
+
+        public static byte[] LoadOrGenerateIdeOptionRom(string ideRomPath)
+        {
+            if (!string.IsNullOrEmpty(ideRomPath) && File.Exists(ideRomPath))
+            {
+                return File.ReadAllBytes(ideRomPath);
+            }
+
+            // Generate standard IDE Option ROM at 0xC8000 (16KB / 32 blocks of 512 bytes)
+            byte[] ideRom = new byte[16 * 1024];
+            ideRom[0] = 0x55; // Magic byte 1
+            ideRom[1] = 0xAA; // Magic byte 2
+            ideRom[2] = 0x20; // Length = 32 * 512 bytes = 16KB
+            ideRom[3] = 0xCB; // RETF
+
+            return ideRom;
+        }
+
         public static byte[] GenerateOpenBios(int ramSizeMB)
         {
             byte[] bios = new byte[65536];

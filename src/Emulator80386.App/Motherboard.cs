@@ -20,6 +20,7 @@ namespace Emulator80386.App
         public Pit8253 Pit { get; }
         public CmosRtc Cmos { get; }
         public SystemControlPort SystemControl { get; }
+        public IdeController Ide { get; }
         public FolderDiskController DiskC { get; }
         public VgaRenderer Vga { get; }
 
@@ -52,12 +53,26 @@ namespace Emulator80386.App
             IOPort.RegisterDevice(0x92, SystemControl);
 
             DiskC = new FolderDiskController(Config.DriveCFolder);
+
+            Ide = new IdeController(DiskC);
+            for (ushort p = 0x1F0; p <= 0x1F7; p++)
+            {
+                IOPort.RegisterDevice(p, Ide);
+            }
+            IOPort.RegisterDevice(0x3F6, Ide);
+
             Vga = new VgaRenderer();
 
             Cpu = new Cpu386(Memory, IOPort);
 
             byte[] biosRom = BiosLoader.LoadOrGenerateBios(Config);
             Memory.LoadBiosRom(biosRom);
+
+            byte[] vgaRom = BiosLoader.LoadOrGenerateVgaOptionRom(Config.VgaRomPath);
+            Memory.LoadVgaOptionRom(vgaRom);
+
+            byte[] ideRom = BiosLoader.LoadOrGenerateIdeOptionRom(Config.IdeRomPath);
+            Memory.LoadIdeOptionRom(ideRom);
         }
 
         public void Boot()
