@@ -84,6 +84,46 @@ namespace Emulator80386.App.CPU
             }
         }
 
+        private struct ModRM
+        {
+            public int Mod;
+            public int Reg;
+            public int RM;
+            public uint EA;
+            public bool IsReg => Mod == 3;
+        }
+
+        private ModRM DecodeModRM(bool addressSize32, SegmentRegister defaultSeg)
+        {
+            byte modrm = Fetch8();
+            ModRM m = new ModRM
+            {
+                Mod = (modrm >> 6) & 3,
+                Reg = (modrm >> 3) & 7,
+                RM = modrm & 7
+            };
+
+            if (m.Mod != 3)
+            {
+                m.EA = GetEA(m.Mod, m.RM, addressSize32, defaultSeg);
+            }
+            else
+            {
+                m.EA = (uint)m.RM;
+            }
+
+            return m;
+        }
+
+        private byte ReadRm8(ModRM m) => m.IsReg ? Reg.GetGpr8(m.RM) : Memory.Read8(m.EA);
+        private void WriteRm8(ModRM m, byte val) { if (m.IsReg) Reg.SetGpr8(m.RM, val); else Memory.Write8(m.EA, val); }
+
+        private ushort ReadRm16(ModRM m) => m.IsReg ? Reg.GetGpr16(m.RM) : Memory.Read16(m.EA);
+        private void WriteRm16(ModRM m, ushort val) { if (m.IsReg) Reg.SetGpr16(m.RM, val); else Memory.Write16(m.EA, val); }
+
+        private uint ReadRm32(ModRM m) => m.IsReg ? Reg.GetGpr32(m.RM) : Memory.Read32(m.EA);
+        private void WriteRm32(ModRM m, uint val) { if (m.IsReg) Reg.SetGpr32(m.RM, val); else Memory.Write32(m.EA, val); }
+
         private void Execute0FOpcode(byte subOpcode, bool operandSize32, bool addressSize32, SegmentRegister? overrideSeg)
         {
             SegmentRegister defaultDs = overrideSeg ?? Reg.DS;
@@ -93,10 +133,9 @@ namespace Emulator80386.App.CPU
                 // LGDT / LIDT (0x0F 0x01)
                 case 0x01:
                     {
-                        byte modrm = Fetch8();
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
-                        ushort limit = Memory.Read16(ea);
-                        uint baseAddr = Memory.Read32(ea + 2);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        ushort limit = Memory.Read16(m.EA);
+                        uint baseAddr = Memory.Read32(m.EA + 2);
                     }
                     break;
 
@@ -144,40 +183,40 @@ namespace Emulator80386.App.CPU
                 // MOVZX r16/32, r/m8 (0x0F 0xB6)
                 case 0xB6:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        byte val = (ea < 8 && (ea >= 0)) ? Memory.Read8(ea) : Memory.Read8(ea);
-                        if (operandSize32) Reg.SetGpr32(reg, val);
-                        else Reg.SetGpr16(reg, val);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte val = ReadRm8(m);
+                        if (operandSize32) Reg.SetGpr32(m.Reg, val);
+                        else Reg.SetGpr16(m.Reg, val);
                     }
                     break;
 
                 // MOVZX r16/32, r/m16 (0x0F 0xB7)
                 case 0xB7:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        ushort val = Memory.Read16(ea);
-                        if (operandSize32) Reg.SetGpr32(reg, val);
-                        else Reg.SetGpr16(reg, val);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        ushort val = ReadRm16(m);
+                        if (operandSize32) Reg.SetGpr32(m.Reg, val);
+                        else Reg.SetGpr16(m.Reg, val);
                     }
                     break;
 
                 // MOVSX r16/32, r/m8 (0x0F 0xBE)
                 case 0xBE:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        sbyte val = (sbyte)Memory.Read8(ea);
-                        if (operandSize32) Reg.SetGpr32(reg, (uint)val);
-                        else Reg.SetGpr16(reg, (ushort)val);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        sbyte val = (sbyte)ReadRm8(m);
+                        if (operandSize32) Reg.SetGpr32(m.Reg, (uint)val);
+                        else Reg.SetGpr16(m.Reg, (ushort)val);
                     }
                     break;
 
                 // MOVSX r16/32, r/m16 (0x0F 0xBF)
                 case 0xBF:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        short val = (short)Memory.Read16(ea);
-                        if (operandSize32) Reg.SetGpr32(reg, (uint)val);
-                        else Reg.SetGpr16(reg, (ushort)val);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        short val = (short)ReadRm16(m);
+                        if (operandSize32) Reg.SetGpr32(m.Reg, (uint)val);
+                        else Reg.SetGpr16(m.Reg, (ushort)val);
                     }
                     break;
 
@@ -223,12 +262,64 @@ namespace Emulator80386.App.CPU
                     Reg.SetFlag(EFlags.CF, true);
                     break;
 
+                case 0x9C: // PUSHF
+                    if (operandSize32) Push32((uint)Reg.EFlags);
+                    else Push16((ushort)Reg.EFlags);
+                    break;
+
+                case 0x9D: // POPF
+                    if (operandSize32) Reg.EFlags = (EFlags)Pop32();
+                    else Reg.EFlags = (EFlags)Pop16();
+                    break;
+
+                case 0x9E: // SAHF
+                    Reg.EFlags = (Reg.EFlags & (EFlags)0xFFFFFF00) | (EFlags)Reg.AH;
+                    break;
+
+                case 0x9F: // LAHF
+                    Reg.AH = (byte)((uint)Reg.EFlags & 0xFF);
+                    break;
+
+                case 0x60: // PUSHA / PUSHAD
+                    if (operandSize32)
+                    {
+                        uint tempSp = Reg.ESP;
+                        Push32(Reg.EAX); Push32(Reg.ECX); Push32(Reg.EDX); Push32(Reg.EBX);
+                        Push32(tempSp); Push32(Reg.EBP); Push32(Reg.ESI); Push32(Reg.EDI);
+                    }
+                    else
+                    {
+                        ushort tempSp = Reg.SP;
+                        Push16(Reg.AX); Push16(Reg.CX); Push16(Reg.DX); Push16(Reg.BX);
+                        Push16(tempSp); Push16(Reg.BP); Push16(Reg.SI); Push16(Reg.DI);
+                    }
+                    break;
+
+                case 0x61: // POPA / POPAD
+                    if (operandSize32)
+                    {
+                        Reg.EDI = Pop32(); Reg.ESI = Pop32(); Reg.EBP = Pop32(); Pop32();
+                        Reg.EBX = Pop32(); Reg.EDX = Pop32(); Reg.ECX = Pop32(); Reg.EAX = Pop32();
+                    }
+                    else
+                    {
+                        Reg.DI = Pop16(); Reg.SI = Pop16(); Reg.BP = Pop16(); Pop16();
+                        Reg.BX = Pop16(); Reg.DX = Pop16(); Reg.CX = Pop16(); Reg.AX = Pop16();
+                    }
+                    break;
+
+                case 0xC9: // LEAVE
+                    Reg.ESP = Reg.EBP;
+                    if (operandSize32) Reg.EBP = Pop32();
+                    else Reg.BP = Pop16();
+                    break;
+
                 // LEA r16/32, m (0x8D)
                 case 0x8D:
                     {
                         byte modrm = Fetch8();
                         int reg = (modrm >> 3) & 7;
-                        uint ea = GetEAOffset(modrm, addressSize32);
+                        uint ea = GetEA((modrm >> 6) & 3, modrm & 7, addressSize32, defaultDs);
                         if (operandSize32) Reg.SetGpr32(reg, ea);
                         else Reg.SetGpr16(reg, (ushort)ea);
                     }
@@ -238,57 +329,95 @@ namespace Emulator80386.App.CPU
                 case 0x80:
                 case 0x82:
                     {
-                        byte modrm = Fetch8();
-                        int op = (modrm >> 3) & 7;
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
-                        byte src = Memory.Read8(ea);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte src = ReadRm8(m);
                         byte imm = Fetch8();
-                        byte res = ExecuteAlu8(op, src, imm);
-                        if (op != 7) Memory.Write8(ea, res);
+                        byte res = ExecuteAlu8(m.Reg, src, imm);
+                        if (m.Reg != 7) WriteRm8(m, res);
                     }
                     break;
 
                 case 0x81:
                     {
-                        byte modrm = Fetch8();
-                        int op = (modrm >> 3) & 7;
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
                         if (operandSize32)
                         {
-                            uint src = Memory.Read32(ea);
+                            uint src = ReadRm32(m);
                             uint imm = Fetch32();
-                            uint res = ExecuteAlu32(op, src, imm);
-                            if (op != 7) Memory.Write32(ea, res);
+                            uint res = ExecuteAlu32(m.Reg, src, imm);
+                            if (m.Reg != 7) WriteRm32(m, res);
                         }
                         else
                         {
-                            ushort src = Memory.Read16(ea);
+                            ushort src = ReadRm16(m);
                             ushort imm = Fetch16();
-                            ushort res = ExecuteAlu16(op, src, imm);
-                            if (op != 7) Memory.Write16(ea, res);
+                            ushort res = ExecuteAlu16(m.Reg, src, imm);
+                            if (m.Reg != 7) WriteRm16(m, res);
                         }
                     }
                     break;
 
                 case 0x83:
                     {
-                        byte modrm = Fetch8();
-                        int op = (modrm >> 3) & 7;
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
                         sbyte imm8 = (sbyte)Fetch8();
                         if (operandSize32)
                         {
-                            uint src = Memory.Read32(ea);
+                            uint src = ReadRm32(m);
                             uint imm = (uint)(int)imm8;
-                            uint res = ExecuteAlu32(op, src, imm);
-                            if (op != 7) Memory.Write32(ea, res);
+                            uint res = ExecuteAlu32(m.Reg, src, imm);
+                            if (m.Reg != 7) WriteRm32(m, res);
                         }
                         else
                         {
-                            ushort src = Memory.Read16(ea);
+                            ushort src = ReadRm16(m);
                             ushort imm = (ushort)(short)imm8;
-                            ushort res = ExecuteAlu16(op, src, imm);
-                            if (op != 7) Memory.Write16(ea, res);
+                            ushort res = ExecuteAlu16(m.Reg, src, imm);
+                            if (m.Reg != 7) WriteRm16(m, res);
+                        }
+                    }
+                    break;
+
+                // Standard ALU ModRM Opcodes (0x00..0x03, 0x08..0x0B, 0x10..0x13, 0x18..0x1B, 0x20..0x23, 0x28..0x2B, 0x30..0x33, 0x38..0x3B)
+                case var _ when (opcode <= 0x3B && (opcode & 4) == 0):
+                    {
+                        int op = (opcode >> 3) & 7;
+                        int dir = (opcode >> 1) & 1;
+                        bool is1632 = (opcode & 1) != 0;
+
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (!is1632) // 8-bit
+                        {
+                            byte src1 = dir == 0 ? ReadRm8(m) : Reg.GetGpr8(m.Reg);
+                            byte src2 = dir == 0 ? Reg.GetGpr8(m.Reg) : ReadRm8(m);
+                            byte res = ExecuteAlu8(op, src1, src2);
+                            if (op != 7)
+                            {
+                                if (dir == 0) WriteRm8(m, res);
+                                else Reg.SetGpr8(m.Reg, res);
+                            }
+                        }
+                        else if (operandSize32) // 32-bit
+                        {
+                            uint src1 = dir == 0 ? ReadRm32(m) : Reg.GetGpr32(m.Reg);
+                            uint src2 = dir == 0 ? Reg.GetGpr32(m.Reg) : ReadRm32(m);
+                            uint res = ExecuteAlu32(op, src1, src2);
+                            if (op != 7)
+                            {
+                                if (dir == 0) WriteRm32(m, res);
+                                else Reg.SetGpr32(m.Reg, res);
+                            }
+                        }
+                        else // 16-bit
+                        {
+                            ushort src1 = dir == 0 ? ReadRm16(m) : Reg.GetGpr16(m.Reg);
+                            ushort src2 = dir == 0 ? Reg.GetGpr16(m.Reg) : ReadRm16(m);
+                            ushort res = ExecuteAlu16(op, src1, src2);
+                            if (op != 7)
+                            {
+                                if (dir == 0) WriteRm16(m, res);
+                                else Reg.SetGpr16(m.Reg, res);
+                            }
                         }
                     }
                     break;
@@ -296,45 +425,41 @@ namespace Emulator80386.App.CPU
                 // Group 4/5 Opcodes: FE, FF
                 case 0xFE:
                     {
-                        byte modrm = Fetch8();
-                        int op = (modrm >> 3) & 7;
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
-                        byte val = Memory.Read8(ea);
-                        if (op == 0) Memory.Write8(ea, Inc8(val));
-                        else if (op == 1) Memory.Write8(ea, Dec8(val));
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte val = ReadRm8(m);
+                        if (m.Reg == 0) WriteRm8(m, Inc8(val));
+                        else if (m.Reg == 1) WriteRm8(m, Dec8(val));
                     }
                     break;
 
                 case 0xFF:
                     {
-                        byte modrm = Fetch8();
-                        int op = (modrm >> 3) & 7;
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
-                        if (op == 0) // INC
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (m.Reg == 0) // INC
                         {
-                            if (operandSize32) Memory.Write32(ea, Inc32(Memory.Read32(ea)));
-                            else Memory.Write16(ea, Inc16(Memory.Read16(ea)));
+                            if (operandSize32) WriteRm32(m, Inc32(ReadRm32(m)));
+                            else WriteRm16(m, Inc16(ReadRm16(m)));
                         }
-                        else if (op == 1) // DEC
+                        else if (m.Reg == 1) // DEC
                         {
-                            if (operandSize32) Memory.Write32(ea, Dec32(Memory.Read32(ea)));
-                            else Memory.Write16(ea, Dec16(Memory.Read16(ea)));
+                            if (operandSize32) WriteRm32(m, Dec32(ReadRm32(m)));
+                            else WriteRm16(m, Dec16(ReadRm16(m)));
                         }
-                        else if (op == 2) // CALL near
+                        else if (m.Reg == 2) // CALL near
                         {
-                            uint target = operandSize32 ? Memory.Read32(ea) : Memory.Read16(ea);
+                            uint target = operandSize32 ? ReadRm32(m) : ReadRm16(m);
                             if (operandSize32) Push32(Reg.EIP); else Push16((ushort)Reg.EIP);
                             Reg.EIP = target;
                         }
-                        else if (op == 4) // JMP near
+                        else if (m.Reg == 4) // JMP near
                         {
-                            uint target = operandSize32 ? Memory.Read32(ea) : Memory.Read16(ea);
+                            uint target = operandSize32 ? ReadRm32(m) : ReadRm16(m);
                             Reg.EIP = target;
                         }
-                        else if (op == 6) // PUSH
+                        else if (m.Reg == 6) // PUSH
                         {
-                            if (operandSize32) Push32(Memory.Read32(ea));
-                            else Push16(Memory.Read16(ea));
+                            if (operandSize32) Push32(ReadRm32(m));
+                            else Push16(ReadRm16(m));
                         }
                     }
                     break;
@@ -349,58 +474,6 @@ namespace Emulator80386.App.CPU
                 case 0x07: SetSegmentSelector(0, Pop16()); break;
                 case 0x17: SetSegmentSelector(2, Pop16()); break;
                 case 0x1F: SetSegmentSelector(3, Pop16()); break;
-
-                // XOR r/m8, r8 (0x30)
-                case 0x30:
-                    {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        byte val = Xor8(Memory.Read8(ea), Reg.GetGpr8(reg));
-                        Memory.Write8(ea, val);
-                    }
-                    break;
-
-                // XOR r8, r/m8 (0x32)
-                case 0x32:
-                    {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        byte val = Xor8(Reg.GetGpr8(reg), Memory.Read8(ea));
-                        Reg.SetGpr8(reg, val);
-                    }
-                    break;
-
-                // XOR r/m16/32, r16/32 (0x31)
-                case 0x31:
-                    {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        if (operandSize32)
-                        {
-                            uint val = Xor32(Memory.Read32(ea), Reg.GetGpr32(reg));
-                            Memory.Write32(ea, val);
-                        }
-                        else
-                        {
-                            ushort val = Xor16(Memory.Read16(ea), Reg.GetGpr16(reg));
-                            Memory.Write16(ea, val);
-                        }
-                    }
-                    break;
-
-                // XOR r16/32, r/m16/32 (0x33)
-                case 0x33:
-                    {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        if (operandSize32)
-                        {
-                            uint val = Xor32(Reg.GetGpr32(reg), Memory.Read32(ea));
-                            Reg.SetGpr32(reg, val);
-                        }
-                        else
-                        {
-                            ushort val = Xor16(Reg.GetGpr16(reg), Memory.Read16(ea));
-                            Reg.SetGpr16(reg, val);
-                        }
-                    }
-                    break;
 
                 // MOV reg8, imm8 (0xB0 .. 0xB7)
                 case var _ when (opcode >= 0xB0 && opcode <= 0xB7):
@@ -462,75 +535,70 @@ namespace Emulator80386.App.CPU
                 // MOV r/m8, r8 (0x88)
                 case 0x88:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        Memory.Write8(ea, Reg.GetGpr8(reg));
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        WriteRm8(m, Reg.GetGpr8(m.Reg));
                     }
                     break;
 
                 // MOV r/m16/32, r16/32 (0x89)
                 case 0x89:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        if (operandSize32) Memory.Write32(ea, Reg.GetGpr32(reg));
-                        else Memory.Write16(ea, Reg.GetGpr16(reg));
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32) WriteRm32(m, Reg.GetGpr32(m.Reg));
+                        else WriteRm16(m, Reg.GetGpr16(m.Reg));
                     }
                     break;
 
                 // MOV r8, r/m8 (0x8A)
                 case 0x8A:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        Reg.SetGpr8(reg, Memory.Read8(ea));
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        Reg.SetGpr8(m.Reg, ReadRm8(m));
                     }
                     break;
 
                 // MOV r16/32, r/m16/32 (0x8B)
                 case 0x8B:
                     {
-                        DecodeModRM(addressSize32, defaultDs, out var ea, out var reg);
-                        if (operandSize32) Reg.SetGpr32(reg, Memory.Read32(ea));
-                        else Reg.SetGpr16(reg, Memory.Read16(ea));
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32) Reg.SetGpr32(m.Reg, ReadRm32(m));
+                        else Reg.SetGpr16(m.Reg, ReadRm16(m));
                     }
                     break;
 
                 // MOV r/m8, imm8 (0xC6 /0)
                 case 0xC6:
                     {
-                        byte modrm = Fetch8();
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
                         byte imm = Fetch8();
-                        Memory.Write8(ea, imm);
+                        WriteRm8(m, imm);
                     }
                     break;
 
                 // MOV r/m16/32, imm16/32 (0xC7 /0)
                 case 0xC7:
                     {
-                        byte modrm = Fetch8();
-                        uint ea = GetEA(modrm, addressSize32, defaultDs);
-                        if (operandSize32) Memory.Write32(ea, Fetch32());
-                        else Memory.Write16(ea, Fetch16());
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32) WriteRm32(m, Fetch32());
+                        else WriteRm16(m, Fetch16());
                     }
                     break;
 
                 // MOV Sreg, r/m16 (0x8E)
                 case 0x8E:
                     {
-                        byte modrm = Fetch8();
-                        int sreg = (modrm >> 3) & 7;
-                        ushort selector = (modrm >= 0xC0) ? Reg.GetGpr16(modrm & 7) : Memory.Read16(GetEA(modrm, addressSize32, defaultDs));
-                        SetSegmentSelector(sreg, selector);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        ushort selector = ReadRm16(m);
+                        SetSegmentSelector(m.Reg, selector);
                     }
                     break;
 
                 // MOV r16/32, Sreg (0x8C)
                 case 0x8C:
                     {
-                        byte modrm = Fetch8();
-                        int sreg = (modrm >> 3) & 7;
-                        ushort val = GetSegmentSelector(sreg);
-                        if (modrm >= 0xC0) Reg.SetGpr16(modrm & 7, val);
-                        else Memory.Write16(GetEA(modrm, addressSize32, defaultDs), val);
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        ushort val = GetSegmentSelector(m.Reg);
+                        WriteRm16(m, val);
                     }
                     break;
 
@@ -855,49 +923,6 @@ namespace Emulator80386.App.CPU
             _ => src
         };
 
-        private uint GetEAOffset(byte modrm, bool addressSize32)
-        {
-            int mod = (modrm >> 6) & 3;
-            int rm = modrm & 7;
-
-            if (!addressSize32)
-            {
-                ushort offset = rm switch
-                {
-                    0 => (ushort)(Reg.BX + Reg.SI),
-                    1 => (ushort)(Reg.BX + Reg.DI),
-                    2 => (ushort)(Reg.BP + Reg.SI),
-                    3 => (ushort)(Reg.BP + Reg.DI),
-                    4 => Reg.SI,
-                    5 => Reg.DI,
-                    6 => (mod == 0) ? Fetch16() : Reg.BP,
-                    7 => Reg.BX,
-                    _ => 0
-                };
-                if (mod == 1) offset += (ushort)(sbyte)Fetch8();
-                else if (mod == 2) offset += Fetch16();
-                return offset;
-            }
-            else
-            {
-                uint offset = rm switch
-                {
-                    0 => Reg.EAX,
-                    1 => Reg.ECX,
-                    2 => Reg.EDX,
-                    3 => Reg.EBX,
-                    4 => Reg.ESP,
-                    5 => (mod == 0) ? Fetch32() : Reg.EBP,
-                    6 => Reg.ESI,
-                    7 => Reg.EDI,
-                    _ => 0
-                };
-                if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
-                else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
-                return offset;
-            }
-        }
-
         public void TriggerInterrupt(byte vector)
         {
             if (Reg.ProtectedMode)
@@ -979,23 +1004,8 @@ namespace Emulator80386.App.CPU
             _ => Reg.DS.Selector
         };
 
-        private void DecodeModRM(bool addressSize32, SegmentRegister defaultSeg, out uint ea, out int reg)
+        private uint GetEA(int mod, int rm, bool addressSize32, SegmentRegister defaultSeg)
         {
-            byte modrm = Fetch8();
-            reg = (modrm >> 3) & 7;
-            ea = GetEA(modrm, addressSize32, defaultSeg);
-        }
-
-        private uint GetEA(byte modrm, bool addressSize32, SegmentRegister defaultSeg)
-        {
-            int mod = (modrm >> 6) & 3;
-            int rm = modrm & 7;
-
-            if (mod == 3)
-            {
-                return (uint)rm;
-            }
-
             if (!addressSize32)
             {
                 ushort offset = rm switch
