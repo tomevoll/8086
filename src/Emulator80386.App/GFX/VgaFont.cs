@@ -225,7 +225,7 @@ namespace Emulator80386.App.GFX
                     break;
 
                 default:
-                    rows[3] = 0x3C; rows[4] = 0x42; rows[5] = 0x42; rows[6] = 0x3C;
+                    // Return blank for unhandled glyphs so background color displays cleanly
                     break;
             }
 
