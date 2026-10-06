@@ -31,6 +31,7 @@ namespace Emulator80386.App
             IOPort = new IOPortBus();
 
             Keyboard = new KeyboardController8042();
+            Keyboard.OnCpuReset = ResetCpu;
             IOPort.RegisterDevice(0x60, Keyboard);
             IOPort.RegisterDevice(0x64, Keyboard);
 
@@ -51,6 +52,8 @@ namespace Emulator80386.App
 
             SystemControl = new SystemControlPort();
             IOPort.RegisterDevice(0x92, SystemControl);
+            IOPort.RegisterDevice(0xDF, SystemControl);
+            IOPort.RegisterDevice(0xEE, SystemControl);
 
             DiskC = new FolderDiskController(Config.DriveCFolder);
 
@@ -77,7 +80,13 @@ namespace Emulator80386.App
 
         public void Boot()
         {
-            // Reset vector execution
+            ResetCpu();
+        }
+
+        public void ResetCpu()
+        {
+            Cpu.Halted = false;
+            Cpu.Reg.CR0 = 0; // Real mode
             Cpu.Reg.CS.Selector = 0xF000;
             Cpu.Reg.CS.Base = 0xF0000;
             Cpu.Reg.EIP = 0xFFF0;

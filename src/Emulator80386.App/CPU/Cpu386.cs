@@ -30,7 +30,7 @@ namespace Emulator80386.App.CPU
         public byte Fetch8()
         {
             uint addr = LinearAddress(Reg.CS, Reg.EIP);
-            Reg.EIP++;
+            Reg.EIP = Reg.ProtectedMode ? Reg.EIP + 1 : (ushort)(Reg.EIP + 1);
             return Memory.Read8(addr);
         }
 
@@ -124,6 +124,12 @@ namespace Emulator80386.App.CPU
         private uint ReadRm32(ModRM m) => m.IsReg ? Reg.GetGpr32(m.RM) : Memory.Read32(m.EA);
         private void WriteRm32(ModRM m, uint val) { if (m.IsReg) Reg.SetGpr32(m.RM, val); else Memory.Write32(m.EA, val); }
 
+        private void AddRelEip(int rel)
+        {
+            if (Reg.ProtectedMode) Reg.EIP = (uint)(Reg.EIP + rel);
+            else Reg.EIP = (ushort)(Reg.EIP + rel);
+        }
+
         private void Execute0FOpcode(byte subOpcode, bool operandSize32, bool addressSize32, SegmentRegister? overrideSeg)
         {
             SegmentRegister defaultDs = overrideSeg ?? Reg.DS;
@@ -175,7 +181,7 @@ namespace Emulator80386.App.CPU
                         int rel = operandSize32 ? (int)Fetch32() : (short)Fetch16();
                         if (CheckCondition(subOpcode & 0x0F))
                         {
-                            Reg.EIP = (uint)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                     }
                     break;
@@ -314,6 +320,359 @@ namespace Emulator80386.App.CPU
                     else Reg.BP = Pop16();
                     break;
 
+                // PUSH imm16/32 (0x68)
+                case 0x68:
+                    if (operandSize32) Push32(Fetch32());
+                    else Push16(Fetch16());
+                    break;
+
+                // PUSH imm8 (0x6A)
+                case 0x6A:
+                    {
+                        sbyte imm8 = (sbyte)Fetch8();
+                        if (operandSize32) Push32((uint)(int)imm8);
+                        else Push16((ushort)(short)imm8);
+                    }
+                    break;
+
+                // XCHG r/m8, r8 (0x86)
+                case 0x86:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte val1 = ReadRm8(m);
+                        byte val2 = Reg.GetGpr8(m.Reg);
+                        WriteRm8(m, val2);
+                        Reg.SetGpr8(m.Reg, val1);
+                    }
+                    break;
+
+                // XCHG r/m16/32, r16/32 (0x87)
+                case 0x87:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val1 = ReadRm32(m);
+                            uint val2 = Reg.GetGpr32(m.Reg);
+                            WriteRm32(m, val2);
+                            Reg.SetGpr32(m.Reg, val1);
+                        }
+                        else
+                        {
+                            ushort val1 = ReadRm16(m);
+                            ushort val2 = Reg.GetGpr16(m.Reg);
+                            WriteRm16(m, val2);
+                            Reg.SetGpr16(m.Reg, val1);
+                        }
+                    }
+                    break;
+
+                // XCHG AX/EAX, reg16/32 (0x91 .. 0x97)
+                case var _ when (opcode >= 0x91 && opcode <= 0x97):
+                    {
+                        int reg = opcode - 0x90;
+                        if (operandSize32)
+                        {
+                            uint tmp = Reg.EAX;
+                            Reg.EAX = Reg.GetGpr32(reg);
+                            Reg.SetGpr32(reg, tmp);
+                        }
+                        else
+                        {
+                            ushort tmp = Reg.AX;
+                            Reg.AX = Reg.GetGpr16(reg);
+                            Reg.SetGpr16(reg, tmp);
+                        }
+                    }
+                    break;
+
+                // CALL FAR ptr16:16 / ptr16:32 (0x9A)
+                case 0x9A:
+                    {
+                        if (operandSize32)
+                        {
+                            uint newEip = Fetch32();
+                            ushort newCs = Fetch16();
+                            Push32(Reg.CS.Selector);
+                            Push32(Reg.EIP);
+                            SetSegmentSelector(1, newCs);
+                            Reg.EIP = newEip;
+                        }
+                        else
+                        {
+                            ushort newIp = Fetch16();
+                            ushort newCs = Fetch16();
+                            Push16(Reg.CS.Selector);
+                            Push16((ushort)Reg.EIP);
+                            SetSegmentSelector(1, newCs);
+                            Reg.EIP = newIp;
+                        }
+                    }
+                    break;
+
+                // IRET (0xCF)
+                case 0xCF:
+                    {
+                        if (operandSize32)
+                        {
+                            Reg.EIP = Pop32();
+                            SetSegmentSelector(1, (ushort)Pop32());
+                            Reg.EFlags = (EFlags)Pop32();
+                        }
+                        else
+                        {
+                            Reg.EIP = Pop16();
+                            SetSegmentSelector(1, Pop16());
+                            Reg.EFlags = (EFlags)Pop16();
+                        }
+                    }
+                    break;
+
+                // ADD AL, imm8 (0x04)
+                case 0x04:
+                    Reg.AL = Add8(Reg.AL, Fetch8());
+                    break;
+
+                // ADD AX/EAX, imm16/32 (0x05)
+                case 0x05:
+                    if (operandSize32) Reg.EAX = Add32(Reg.EAX, Fetch32());
+                    else Reg.AX = Add16(Reg.AX, Fetch16());
+                    break;
+
+                // OR AL, imm8 (0x0C)
+                case 0x0C:
+                    Reg.AL = Or8(Reg.AL, Fetch8());
+                    break;
+
+                // OR AX/EAX, imm16/32 (0x0D)
+                case 0x0D:
+                    if (operandSize32) Reg.EAX = Or32(Reg.EAX, Fetch32());
+                    else Reg.AX = Or16(Reg.AX, Fetch16());
+                    break;
+
+                // AND AL, imm8 (0x24)
+                case 0x24:
+                    Reg.AL = And8(Reg.AL, Fetch8());
+                    break;
+
+                // AND AX/EAX, imm16/32 (0x25)
+                case 0x25:
+                    if (operandSize32) Reg.EAX = And32(Reg.EAX, Fetch32());
+                    else Reg.AX = And16(Reg.AX, Fetch16());
+                    break;
+
+                // SUB AL, imm8 (0x2C)
+                case 0x2C:
+                    Reg.AL = Sub8(Reg.AL, Fetch8());
+                    break;
+
+                // SUB AX/EAX, imm16/32 (0x2D)
+                case 0x2D:
+                    if (operandSize32) Reg.EAX = Sub32(Reg.EAX, Fetch32());
+                    else Reg.AX = Sub16(Reg.AX, Fetch16());
+                    break;
+
+                // XOR AL, imm8 (0x34)
+                case 0x34:
+                    Reg.AL = Xor8(Reg.AL, Fetch8());
+                    break;
+
+                // XOR AX/EAX, imm16/32 (0x35)
+                case 0x35:
+                    if (operandSize32) Reg.EAX = Xor32(Reg.EAX, Fetch32());
+                    else Reg.AX = Xor16(Reg.AX, Fetch16());
+                    break;
+
+                // CMP AL, imm8 (0x3C)
+                case 0x3C:
+                    Sub8(Reg.AL, Fetch8());
+                    break;
+
+                // CMP AX/EAX, imm16/32 (0x3D)
+                case 0x3D:
+                    if (operandSize32) Sub32(Reg.EAX, Fetch32());
+                    else Sub16(Reg.AX, Fetch16());
+                    break;
+
+                // TEST AL, imm8 (0xA8)
+                case 0xA8:
+                    And8(Reg.AL, Fetch8());
+                    break;
+
+                // TEST AX/EAX, imm16/32 (0xA9)
+                case 0xA9:
+                    if (operandSize32) And32(Reg.EAX, Fetch32());
+                    else And16(Reg.AX, Fetch16());
+                    break;
+
+                // TEST r/m8, r8 (0x84)
+                case 0x84:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        And8(ReadRm8(m), Reg.GetGpr8(m.Reg));
+                    }
+                    break;
+
+                // TEST r/m16/32, r16/32 (0x85)
+                case 0x85:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32) And32(ReadRm32(m), Reg.GetGpr32(m.Reg));
+                        else And16(ReadRm16(m), Reg.GetGpr16(m.Reg));
+                    }
+                    break;
+
+                // LOOPNZ / LOOPNE (0xE0)
+                case 0xE0:
+                    {
+                        sbyte rel = (sbyte)Fetch8();
+                        if (addressSize32) { Reg.ECX--; if (Reg.ECX != 0 && !Reg.GetFlag(EFlags.ZF)) AddRelEip(rel); }
+                        else { Reg.CX--; if (Reg.CX != 0 && !Reg.GetFlag(EFlags.ZF)) AddRelEip(rel); }
+                    }
+                    break;
+
+                // LOOPZ / LOOPE (0xE1)
+                case 0xE1:
+                    {
+                        sbyte rel = (sbyte)Fetch8();
+                        if (addressSize32) { Reg.ECX--; if (Reg.ECX != 0 && Reg.GetFlag(EFlags.ZF)) AddRelEip(rel); }
+                        else { Reg.CX--; if (Reg.CX != 0 && Reg.GetFlag(EFlags.ZF)) AddRelEip(rel); }
+                    }
+                    break;
+
+                // LOOP (0xE2)
+                case 0xE2:
+                    {
+                        sbyte rel = (sbyte)Fetch8();
+                        if (addressSize32) { Reg.ECX--; if (Reg.ECX != 0) AddRelEip(rel); }
+                        else { Reg.CX--; if (Reg.CX != 0) AddRelEip(rel); }
+                    }
+                    break;
+
+                // JCXZ / JECXZ (0xE3)
+                case 0xE3:
+                    {
+                        sbyte rel = (sbyte)Fetch8();
+                        uint count = addressSize32 ? Reg.ECX : Reg.CX;
+                        if (count == 0) AddRelEip(rel);
+                    }
+                    break;
+
+                // Group 2 Shifts / Rotates: C0, C1, D0, D1, D2, D3
+                case 0xC0:
+                case 0xC1:
+                case 0xD0:
+                case 0xD1:
+                case 0xD2:
+                case 0xD3:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte count = opcode switch
+                        {
+                            0xC0 or 0xC1 => Fetch8(),
+                            0xD0 or 0xD1 => 1,
+                            _ => Reg.CL
+                        };
+                        bool is1632 = (opcode & 1) != 0;
+                        if (!is1632) WriteRm8(m, ExecuteShift8(m.Reg, ReadRm8(m), count));
+                        else if (operandSize32) WriteRm32(m, ExecuteShift32(m.Reg, ReadRm32(m), count));
+                        else WriteRm16(m, ExecuteShift16(m.Reg, ReadRm16(m), count));
+                    }
+                    break;
+
+                // Group 3: F6, F7
+                case 0xF6:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        byte val = ReadRm8(m);
+                        if (m.Reg == 0 || m.Reg == 1) // TEST
+                        {
+                            byte imm = Fetch8();
+                            And8(val, imm);
+                        }
+                        else if (m.Reg == 2) WriteRm8(m, (byte)~val); // NOT
+                        else if (m.Reg == 3) WriteRm8(m, Sub8(0, val)); // NEG
+                        else if (m.Reg == 4) // MUL AL
+                        {
+                            ushort res = (ushort)(Reg.AL * val);
+                            Reg.AX = res;
+                            bool carry = (res >> 8) != 0;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
+                        else if (m.Reg == 6) // DIV AL
+                        {
+                            if (val != 0)
+                            {
+                                ushort num = Reg.AX;
+                                Reg.AL = (byte)(num / val);
+                                Reg.AH = (byte)(num % val);
+                            }
+                        }
+                    }
+                    break;
+
+                case 0xF7:
+                    {
+                        ModRM m = DecodeModRM(addressSize32, defaultDs);
+                        if (operandSize32)
+                        {
+                            uint val = ReadRm32(m);
+                            if (m.Reg == 0 || m.Reg == 1) // TEST
+                            {
+                                uint imm = Fetch32();
+                                And32(val, imm);
+                            }
+                            else if (m.Reg == 2) WriteRm32(m, ~val); // NOT
+                            else if (m.Reg == 3) WriteRm32(m, Sub32(0, val)); // NEG
+                            else if (m.Reg == 4) // MUL EAX
+                            {
+                                ulong res = (ulong)Reg.EAX * val;
+                                Reg.EAX = (uint)res;
+                                Reg.EDX = (uint)(res >> 32);
+                                bool carry = Reg.EDX != 0;
+                                Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                            }
+                            else if (m.Reg == 6) // DIV EAX
+                            {
+                                ulong num = ((ulong)Reg.EDX << 32) | Reg.EAX;
+                                if (val != 0)
+                                {
+                                    Reg.EAX = (uint)(num / val);
+                                    Reg.EDX = (uint)(num % val);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            ushort val = ReadRm16(m);
+                            if (m.Reg == 0 || m.Reg == 1) // TEST
+                            {
+                                ushort imm = Fetch16();
+                                And16(val, imm);
+                            }
+                            else if (m.Reg == 2) WriteRm16(m, (ushort)~val); // NOT
+                            else if (m.Reg == 3) WriteRm16(m, Sub16(0, val)); // NEG
+                            else if (m.Reg == 4) // MUL AX
+                            {
+                                uint res = (uint)Reg.AX * val;
+                                Reg.AX = (ushort)res;
+                                Reg.DX = (ushort)(res >> 16);
+                                bool carry = Reg.DX != 0;
+                                Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                            }
+                            else if (m.Reg == 6) // DIV AX
+                            {
+                                uint num = (uint)((Reg.DX << 16) | Reg.AX);
+                                if (val != 0)
+                                {
+                                    Reg.AX = (ushort)(num / val);
+                                    Reg.DX = (ushort)(num % val);
+                                }
+                            }
+                        }
+                    }
+                    break;
+
                 // LEA r16/32, m (0x8D)
                 case 0x8D:
                     {
@@ -378,15 +737,15 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
-                // Standard ALU ModRM Opcodes (0x00..0x03, 0x08..0x0B, 0x10..0x13, 0x18..0x1B, 0x20..0x23, 0x28..0x2B, 0x30..0x33, 0x38..0x3B)
-                case var _ when (opcode <= 0x3B && (opcode & 4) == 0):
+                // Standard ALU ModRM Opcodes
+                case var _ when (opcode <= 0x3B && ((opcode & 7) < 4)):
                     {
                         int op = (opcode >> 3) & 7;
                         int dir = (opcode >> 1) & 1;
                         bool is1632 = (opcode & 1) != 0;
 
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        if (!is1632) // 8-bit
+                        if (!is1632)
                         {
                             byte src1 = dir == 0 ? ReadRm8(m) : Reg.GetGpr8(m.Reg);
                             byte src2 = dir == 0 ? Reg.GetGpr8(m.Reg) : ReadRm8(m);
@@ -397,7 +756,7 @@ namespace Emulator80386.App.CPU
                                 else Reg.SetGpr8(m.Reg, res);
                             }
                         }
-                        else if (operandSize32) // 32-bit
+                        else if (operandSize32)
                         {
                             uint src1 = dir == 0 ? ReadRm32(m) : Reg.GetGpr32(m.Reg);
                             uint src2 = dir == 0 ? Reg.GetGpr32(m.Reg) : ReadRm32(m);
@@ -408,7 +767,7 @@ namespace Emulator80386.App.CPU
                                 else Reg.SetGpr32(m.Reg, res);
                             }
                         }
-                        else // 16-bit
+                        else
                         {
                             ushort src1 = dir == 0 ? ReadRm16(m) : Reg.GetGpr16(m.Reg);
                             ushort src2 = dir == 0 ? Reg.GetGpr16(m.Reg) : ReadRm16(m);
@@ -435,28 +794,28 @@ namespace Emulator80386.App.CPU
                 case 0xFF:
                     {
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        if (m.Reg == 0) // INC
+                        if (m.Reg == 0)
                         {
                             if (operandSize32) WriteRm32(m, Inc32(ReadRm32(m)));
                             else WriteRm16(m, Inc16(ReadRm16(m)));
                         }
-                        else if (m.Reg == 1) // DEC
+                        else if (m.Reg == 1)
                         {
                             if (operandSize32) WriteRm32(m, Dec32(ReadRm32(m)));
                             else WriteRm16(m, Dec16(ReadRm16(m)));
                         }
-                        else if (m.Reg == 2) // CALL near
+                        else if (m.Reg == 2)
                         {
                             uint target = operandSize32 ? ReadRm32(m) : ReadRm16(m);
                             if (operandSize32) Push32(Reg.EIP); else Push16((ushort)Reg.EIP);
                             Reg.EIP = target;
                         }
-                        else if (m.Reg == 4) // JMP near
+                        else if (m.Reg == 4)
                         {
                             uint target = operandSize32 ? ReadRm32(m) : ReadRm16(m);
                             Reg.EIP = target;
                         }
-                        else if (m.Reg == 6) // PUSH
+                        else if (m.Reg == 6)
                         {
                             if (operandSize32) Push32(ReadRm32(m));
                             else Push16(ReadRm16(m));
@@ -654,39 +1013,6 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
-                // ADD AL, imm8 (0x04)
-                case 0x04:
-                    Reg.AL = Add8(Reg.AL, Fetch8());
-                    break;
-
-                // ADD AX/EAX, imm16/32 (0x05)
-                case 0x05:
-                    if (operandSize32) Reg.EAX = Add32(Reg.EAX, Fetch32());
-                    else Reg.AX = Add16(Reg.AX, Fetch16());
-                    break;
-
-                // SUB AL, imm8 (0x2C)
-                case 0x2C:
-                    Reg.AL = Sub8(Reg.AL, Fetch8());
-                    break;
-
-                // SUB AX/EAX, imm16/32 (0x2D)
-                case 0x2D:
-                    if (operandSize32) Reg.EAX = Sub32(Reg.EAX, Fetch32());
-                    else Reg.AX = Sub16(Reg.AX, Fetch16());
-                    break;
-
-                // CMP AL, imm8 (0x3C)
-                case 0x3C:
-                    Sub8(Reg.AL, Fetch8());
-                    break;
-
-                // CMP AX/EAX, imm16/32 (0x3D)
-                case 0x3D:
-                    if (operandSize32) Sub32(Reg.EAX, Fetch32());
-                    else Sub16(Reg.AX, Fetch16());
-                    break;
-
                 // INC reg16/32 (0x40 .. 0x47)
                 case var _ when (opcode >= 0x40 && opcode <= 0x47):
                     {
@@ -727,7 +1053,7 @@ namespace Emulator80386.App.CPU
                 case 0xEB:
                     {
                         sbyte rel = (sbyte)Fetch8();
-                        Reg.EIP = (uint)(Reg.EIP + rel);
+                        AddRelEip(rel);
                     }
                     break;
 
@@ -737,12 +1063,12 @@ namespace Emulator80386.App.CPU
                         if (operandSize32)
                         {
                             int rel = (int)Fetch32();
-                            Reg.EIP = (uint)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                         else
                         {
                             short rel = (short)Fetch16();
-                            Reg.EIP = (ushort)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                     }
                     break;
@@ -776,13 +1102,13 @@ namespace Emulator80386.App.CPU
                         {
                             int rel = (int)Fetch32();
                             Push32(Reg.EIP);
-                            Reg.EIP = (uint)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                         else
                         {
                             short rel = (short)Fetch16();
                             Push16((ushort)Reg.EIP);
-                            Reg.EIP = (ushort)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                     }
                     break;
@@ -815,7 +1141,7 @@ namespace Emulator80386.App.CPU
                         sbyte rel = (sbyte)Fetch8();
                         if (CheckCondition(opcode & 0x0F))
                         {
-                            Reg.EIP = (uint)(Reg.EIP + rel);
+                            AddRelEip(rel);
                         }
                     }
                     break;
@@ -884,12 +1210,126 @@ namespace Emulator80386.App.CPU
             }
         }
 
+        private byte ExecuteShift8(int op, byte val, byte cnt)
+        {
+            cnt &= 0x1F;
+            if (cnt == 0) return val;
+            for (int i = 0; i < cnt; i++)
+            {
+                if (op == 4) // SHL / SAL
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x80) != 0);
+                    val = (byte)(val << 1);
+                }
+                else if (op == 5) // SHR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x01) != 0);
+                    val = (byte)(val >> 1);
+                }
+                else if (op == 7) // SAR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x01) != 0);
+                    val = (byte)((val >> 1) | (val & 0x80));
+                }
+                else if (op == 0) // ROL
+                {
+                    bool top = (val & 0x80) != 0;
+                    val = (byte)((val << 1) | (top ? 1 : 0));
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 1) // ROR
+                {
+                    bool bot = (val & 0x01) != 0;
+                    val = (byte)((val >> 1) | (bot ? 0x80 : 0));
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
+            }
+            Reg.UpdateZeroSignParity8(val);
+            return val;
+        }
+
+        private ushort ExecuteShift16(int op, ushort val, byte cnt)
+        {
+            cnt &= 0x1F;
+            if (cnt == 0) return val;
+            for (int i = 0; i < cnt; i++)
+            {
+                if (op == 4) // SHL
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x8000) != 0);
+                    val = (ushort)(val << 1);
+                }
+                else if (op == 5) // SHR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x0001) != 0);
+                    val = (ushort)(val >> 1);
+                }
+                else if (op == 7) // SAR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x0001) != 0);
+                    val = (ushort)((val >> 1) | (val & 0x8000));
+                }
+                else if (op == 0) // ROL
+                {
+                    bool top = (val & 0x8000) != 0;
+                    val = (ushort)((val << 1) | (top ? 1 : 0));
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 1) // ROR
+                {
+                    bool bot = (val & 0x0001) != 0;
+                    val = (ushort)((val >> 1) | (bot ? 0x8000 : 0));
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
+            }
+            Reg.UpdateZeroSignParity16(val);
+            return val;
+        }
+
+        private uint ExecuteShift32(int op, uint val, byte cnt)
+        {
+            cnt &= 0x1F;
+            if (cnt == 0) return val;
+            for (int i = 0; i < cnt; i++)
+            {
+                if (op == 4) // SHL
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x80000000) != 0);
+                    val = val << 1;
+                }
+                else if (op == 5) // SHR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x00000001) != 0);
+                    val = val >> 1;
+                }
+                else if (op == 7) // SAR
+                {
+                    Reg.SetFlag(EFlags.CF, (val & 0x00000001) != 0);
+                    val = (val >> 1) | (val & 0x80000000);
+                }
+                else if (op == 0) // ROL
+                {
+                    bool top = (val & 0x80000000) != 0;
+                    val = (val << 1) | (top ? 1u : 0u);
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 1) // ROR
+                {
+                    bool bot = (val & 0x00000001) != 0;
+                    val = (val >> 1) | (bot ? 0x80000000u : 0u);
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
+            }
+            Reg.UpdateZeroSignParity32(val);
+            return val;
+        }
+
         private byte ExecuteAlu8(int op, byte src, byte imm) => op switch
         {
             0 => Add8(src, imm),
             1 => Or8(src, imm),
-            2 => Add8(src, imm),
-            3 => Sub8(src, imm),
+            2 => Adc8(src, imm),
+            3 => Sbb8(src, imm),
             4 => And8(src, imm),
             5 => Sub8(src, imm),
             6 => Xor8(src, imm),
@@ -901,8 +1341,8 @@ namespace Emulator80386.App.CPU
         {
             0 => Add16(src, imm),
             1 => Or16(src, imm),
-            2 => Add16(src, imm),
-            3 => Sub16(src, imm),
+            2 => Adc16(src, imm),
+            3 => Sbb16(src, imm),
             4 => And16(src, imm),
             5 => Sub16(src, imm),
             6 => Xor16(src, imm),
@@ -914,14 +1354,75 @@ namespace Emulator80386.App.CPU
         {
             0 => Add32(src, imm),
             1 => Or32(src, imm),
-            2 => Add32(src, imm),
-            3 => Sub32(src, imm),
+            2 => Adc32(src, imm),
+            3 => Sbb32(src, imm),
             4 => And32(src, imm),
             5 => Sub32(src, imm),
             6 => Xor32(src, imm),
             7 => Sub32(src, imm), // CMP
             _ => src
         };
+
+        private uint GetEA(int mod, int rm, bool addressSize32, SegmentRegister defaultSeg)
+        {
+            if (!addressSize32)
+            {
+                ushort offset = rm switch
+                {
+                    0 => (ushort)(Reg.BX + Reg.SI),
+                    1 => (ushort)(Reg.BX + Reg.DI),
+                    2 => (ushort)(Reg.BP + Reg.SI),
+                    3 => (ushort)(Reg.BP + Reg.DI),
+                    4 => Reg.SI,
+                    5 => Reg.DI,
+                    6 => (mod == 0) ? Fetch16() : Reg.BP,
+                    7 => Reg.BX,
+                    _ => 0
+                };
+
+                if (mod == 1) offset += (ushort)(sbyte)Fetch8();
+                else if (mod == 2) offset += Fetch16();
+
+                SegmentRegister seg = (rm == 2 || rm == 3 || (rm == 6 && mod != 0)) ? Reg.SS : defaultSeg;
+                return LinearAddress(seg, offset);
+            }
+            else
+            {
+                uint offset;
+                if (rm == 4) // SIB byte
+                {
+                    byte sib = Fetch8();
+                    int scale = (sib >> 6) & 3;
+                    int indexReg = (sib >> 3) & 7;
+                    int baseReg = sib & 7;
+
+                    uint baseVal = (baseReg == 5 && mod == 0) ? Fetch32() : Reg.GetGpr32(baseReg);
+                    uint indexVal = (indexReg == 4) ? 0 : Reg.GetGpr32(indexReg);
+
+                    offset = baseVal + (indexVal << scale);
+                }
+                else
+                {
+                    offset = rm switch
+                    {
+                        0 => Reg.EAX,
+                        1 => Reg.ECX,
+                        2 => Reg.EDX,
+                        3 => Reg.EBX,
+                        4 => Reg.ESP,
+                        5 => (mod == 0) ? Fetch32() : Reg.EBP,
+                        6 => Reg.ESI,
+                        7 => Reg.EDI,
+                        _ => 0
+                    };
+                }
+
+                if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
+                else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
+
+                return LinearAddress(defaultSeg, offset);
+            }
+        }
 
         public void TriggerInterrupt(byte vector)
         {
@@ -1004,51 +1505,6 @@ namespace Emulator80386.App.CPU
             _ => Reg.DS.Selector
         };
 
-        private uint GetEA(int mod, int rm, bool addressSize32, SegmentRegister defaultSeg)
-        {
-            if (!addressSize32)
-            {
-                ushort offset = rm switch
-                {
-                    0 => (ushort)(Reg.BX + Reg.SI),
-                    1 => (ushort)(Reg.BX + Reg.DI),
-                    2 => (ushort)(Reg.BP + Reg.SI),
-                    3 => (ushort)(Reg.BP + Reg.DI),
-                    4 => Reg.SI,
-                    5 => Reg.DI,
-                    6 => (mod == 0) ? Fetch16() : Reg.BP,
-                    7 => Reg.BX,
-                    _ => 0
-                };
-
-                if (mod == 1) offset += (ushort)(sbyte)Fetch8();
-                else if (mod == 2) offset += Fetch16();
-
-                SegmentRegister seg = (rm == 2 || rm == 3 || (rm == 6 && mod != 0)) ? Reg.SS : defaultSeg;
-                return LinearAddress(seg, offset);
-            }
-            else
-            {
-                uint offset = rm switch
-                {
-                    0 => Reg.EAX,
-                    1 => Reg.ECX,
-                    2 => Reg.EDX,
-                    3 => Reg.EBX,
-                    4 => Reg.ESP,
-                    5 => (mod == 0) ? Fetch32() : Reg.EBP,
-                    6 => Reg.ESI,
-                    7 => Reg.EDI,
-                    _ => 0
-                };
-
-                if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
-                else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
-
-                return LinearAddress(defaultSeg, offset);
-            }
-        }
-
         private bool CheckCondition(int cond) => cond switch
         {
             0x0 => Reg.GetFlag(EFlags.OF),
@@ -1100,6 +1556,39 @@ namespace Emulator80386.App.CPU
             return r;
         }
 
+        private byte Adc8(byte a, byte b)
+        {
+            int c = Reg.GetFlag(EFlags.CF) ? 1 : 0;
+            int res = a + b + c;
+            Reg.SetFlag(EFlags.CF, res > 0xFF);
+            Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x80) != 0);
+            byte r = (byte)res;
+            Reg.UpdateZeroSignParity8(r);
+            return r;
+        }
+
+        private ushort Adc16(ushort a, ushort b)
+        {
+            int c = Reg.GetFlag(EFlags.CF) ? 1 : 0;
+            int res = a + b + c;
+            Reg.SetFlag(EFlags.CF, res > 0xFFFF);
+            Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x8000) != 0);
+            ushort r = (ushort)res;
+            Reg.UpdateZeroSignParity16(r);
+            return r;
+        }
+
+        private uint Adc32(uint a, uint b)
+        {
+            ulong c = Reg.GetFlag(EFlags.CF) ? 1u : 0u;
+            ulong res = (ulong)a + b + c;
+            Reg.SetFlag(EFlags.CF, res > 0xFFFFFFFF);
+            Reg.SetFlag(EFlags.OF, (((a ^ (uint)res) & (b ^ (uint)res) & 0x80000000)) != 0);
+            uint r = (uint)res;
+            Reg.UpdateZeroSignParity32(r);
+            return r;
+        }
+
         private byte Sub8(byte a, byte b)
         {
             int res = a - b;
@@ -1124,6 +1613,39 @@ namespace Emulator80386.App.CPU
         {
             long res = (long)a - b;
             Reg.SetFlag(EFlags.CF, a < b);
+            Reg.SetFlag(EFlags.OF, (((a ^ b) & (a ^ (uint)res) & 0x80000000)) != 0);
+            uint r = (uint)res;
+            Reg.UpdateZeroSignParity32(r);
+            return r;
+        }
+
+        private byte Sbb8(byte a, byte b)
+        {
+            int c = Reg.GetFlag(EFlags.CF) ? 1 : 0;
+            int res = a - b - c;
+            Reg.SetFlag(EFlags.CF, a < (b + c));
+            Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (byte)res) & 0x80) != 0);
+            byte r = (byte)res;
+            Reg.UpdateZeroSignParity8(r);
+            return r;
+        }
+
+        private ushort Sbb16(ushort a, ushort b)
+        {
+            int c = Reg.GetFlag(EFlags.CF) ? 1 : 0;
+            int res = a - b - c;
+            Reg.SetFlag(EFlags.CF, a < (b + c));
+            Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (ushort)res) & 0x8000) != 0);
+            ushort r = (ushort)res;
+            Reg.UpdateZeroSignParity16(r);
+            return r;
+        }
+
+        private uint Sbb32(uint a, uint b)
+        {
+            long c = Reg.GetFlag(EFlags.CF) ? 1 : 0;
+            long res = (long)a - b - c;
+            Reg.SetFlag(EFlags.CF, (ulong)a < ((ulong)b + (ulong)c));
             Reg.SetFlag(EFlags.OF, (((a ^ b) & (a ^ (uint)res) & 0x80000000)) != 0);
             uint r = (uint)res;
             Reg.UpdateZeroSignParity32(r);

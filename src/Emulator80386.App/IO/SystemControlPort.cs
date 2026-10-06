@@ -10,7 +10,11 @@ namespace Emulator80386.App.IO
             {
                 return PortValue;
             }
-            return 0xFF;
+            if (port == 0xDF || port == 0xEE)
+            {
+                return 0x00; // Chipset A20 ready status
+            }
+            return 0x00;
         }
 
         public void Write8(ushort port, byte value)

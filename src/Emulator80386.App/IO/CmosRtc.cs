@@ -38,6 +38,19 @@ namespace Emulator80386.App.IO
 
             // Equipment byte
             _cmos[0x14] = 0x2D; // VGA, Math coprocessor, 1 floppy
+
+            UpdateChecksum();
+        }
+
+        private void UpdateChecksum()
+        {
+            ushort sum = 0;
+            for (int i = 0x10; i <= 0x2D; i++)
+            {
+                sum += _cmos[i];
+            }
+            _cmos[0x2E] = (byte)((sum >> 8) & 0xFF);
+            _cmos[0x2F] = (byte)(sum & 0xFF);
         }
 
         public byte Read8(ushort port)
@@ -49,7 +62,6 @@ namespace Emulator80386.App.IO
             else if (port == 0x71)
             {
                 byte val = _cmos[_cmosIndex & 0x7F];
-                // Status C is cleared on read
                 if ((_cmosIndex & 0x7F) == 0x0C)
                 {
                     _cmos[0x0C] = 0x00;
@@ -68,6 +80,10 @@ namespace Emulator80386.App.IO
             else if (port == 0x71)
             {
                 _cmos[_cmosIndex & 0x7F] = value;
+                if ((_cmosIndex & 0x7F) >= 0x10 && (_cmosIndex & 0x7F) <= 0x2D)
+                {
+                    UpdateChecksum();
+                }
             }
         }
     }
