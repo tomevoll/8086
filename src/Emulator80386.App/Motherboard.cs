@@ -1,0 +1,72 @@
+using System;
+using Emulator80386.App.Config;
+using Emulator80386.App.CPU;
+using Emulator80386.App.Disk;
+using Emulator80386.App.GFX;
+using Emulator80386.App.IO;
+using Emulator80386.App.Memory;
+
+namespace Emulator80386.App
+{
+    public class Motherboard
+    {
+        public EmulatorConfig Config { get; }
+        public MemoryBus Memory { get; }
+        public IOPortBus IOPort { get; }
+        public Cpu386 Cpu { get; }
+        public KeyboardController8042 Keyboard { get; }
+        public Pic8259 PicMaster { get; }
+        public Pic8259 PicSlave { get; }
+        public Pit8253 Pit { get; }
+        public FolderDiskController DiskC { get; }
+        public VgaRenderer Vga { get; }
+
+        public Motherboard(EmulatorConfig config)
+        {
+            Config = config ?? new EmulatorConfig();
+            Memory = new MemoryBus(Config.RamSizeMB);
+            IOPort = new IOPortBus();
+
+            Keyboard = new KeyboardController8042();
+            IOPort.RegisterDevice(0x60, Keyboard);
+            IOPort.RegisterDevice(0x64, Keyboard);
+
+            PicMaster = new Pic8259(isSlave: false);
+            PicSlave = new Pic8259(isSlave: true);
+            IOPort.RegisterDevice(0x20, PicMaster);
+            IOPort.RegisterDevice(0x21, PicMaster);
+            IOPort.RegisterDevice(0xA0, PicSlave);
+            IOPort.RegisterDevice(0xA1, PicSlave);
+
+            Pit = new Pit8253();
+            IOPort.RegisterDevice(0x40, Pit);
+            IOPort.RegisterDevice(0x43, Pit);
+
+            DiskC = new FolderDiskController(Config.DriveCFolder);
+            Vga = new VgaRenderer();
+
+            Cpu = new Cpu386(Memory, IOPort);
+
+            byte[] biosRom = BiosLoader.LoadOrGenerateBios(Config.RomPath, Config.RamSizeMB);
+            Memory.LoadBiosRom(biosRom);
+        }
+
+        public void Boot()
+        {
+            // Reset vector execution
+            Cpu.Reg.CS.Selector = 0xF000;
+            Cpu.Reg.CS.Base = 0xF0000;
+            Cpu.Reg.EIP = 0xFFF0;
+        }
+
+        public void Step(int instructionsCount = 1)
+        {
+            for (int i = 0; i < instructionsCount; i++)
+            {
+                if (Cpu.Halted) break;
+                Cpu.Step();
+            }
+            Vga.RenderTextMode(Memory.Vram);
+        }
+    }
+}

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Emulator80386.App/Emulator80386.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Emulator80386.Tests/Emulator80386.Tests.csproj" />
+  </Folder>
+</Solution>
