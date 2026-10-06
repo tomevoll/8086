@@ -25,12 +25,15 @@ namespace Emulator80386.Tests
         }
 
         [Fact]
-        public void TestGlDisplayWindowHeadlessMode()
+        public void TestGlDisplayWindowHeadlessModeAndRender()
         {
             using var window = new GlDisplayWindow("Test Window", 640, 400);
-            // Should gracefully handle environment without throwing unhandled exceptions
             bool continueRunning = window.PollEvents(onScancode: null);
             Assert.True(continueRunning);
+
+            uint[] mockPixels = new uint[640 * 400];
+            window.RenderFrameBuffer(mockPixels);
+            window.SwapBuffers();
         }
     }
 }

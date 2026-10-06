@@ -1,18 +1,46 @@
 using System;
 using System.IO;
+using Emulator80386.App.Config;
 
 namespace Emulator80386.App.Memory
 {
     public class BiosLoader
     {
-        public static byte[] LoadOrGenerateBios(string romPath, int ramSizeMB)
+        public static byte[] LoadOrGenerateBios(EmulatorConfig config)
         {
-            if (!string.IsNullOrEmpty(romPath) && File.Exists(romPath))
+            if (config == null) throw new ArgumentNullException(nameof(config));
+
+            // 1. Check for split low/high ROM files (e.g. 32KB low + 32KB high = 64KB ROM)
+            if (!string.IsNullOrEmpty(config.RomLowPath) && !string.IsNullOrEmpty(config.RomHighPath) &&
+                File.Exists(config.RomLowPath) && File.Exists(config.RomHighPath))
             {
-                return File.ReadAllBytes(romPath);
+                byte[] low = File.ReadAllBytes(config.RomLowPath);
+                byte[] high = File.ReadAllBytes(config.RomHighPath);
+
+                int mergedLength = (low.Length + high.Length);
+                byte[] combined = new byte[mergedLength];
+
+                int minLen = Math.Min(low.Length, high.Length);
+                for (int i = 0; i < minLen; i++)
+                {
+                    combined[i * 2] = low[i];
+                    combined[i * 2 + 1] = high[i];
+                }
+                return combined;
             }
 
-            // Generate an open BIOS image (64KB)
+            // 2. Check for unified ROM file
+            if (!string.IsNullOrEmpty(config.RomPath) && File.Exists(config.RomPath))
+            {
+                return File.ReadAllBytes(config.RomPath);
+            }
+
+            // 3. Fallback: Generate open BIOS ROM image (64KB)
+            return GenerateOpenBios(config.RamSizeMB);
+        }
+
+        public static byte[] GenerateOpenBios(int ramSizeMB)
+        {
             byte[] bios = new byte[65536];
 
             // Setup 32-bit reset vector at offset 0xFFF0 (0xFFFFFFF0)

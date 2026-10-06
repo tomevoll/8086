@@ -17,6 +17,8 @@ namespace Emulator80386.App
 
             Console.WriteLine($"[Config] RAM Size: {config.RamSizeMB} MB");
             Console.WriteLine($"[Config] BIOS ROM Path: {config.RomPath}");
+            Console.WriteLine($"[Config] BIOS ROM Low Path: {config.RomLowPath}");
+            Console.WriteLine($"[Config] BIOS ROM High Path: {config.RomHighPath}");
             Console.WriteLine($"[Config] Drive C Folder: {config.DriveCFolder}");
             Console.WriteLine($"[Config] Display Resolution: {config.DisplayWidth}x{config.DisplayHeight}");
 
@@ -33,7 +35,9 @@ namespace Emulator80386.App
                     mb.Keyboard.EnqueueScancode(scancode);
                 });
 
-                mb.Step(instructionsCount: 100);
+                mb.Step(instructionsCount: 1000);
+
+                display.RenderFrameBuffer(mb.Vga.PixelBuffer);
                 display.SwapBuffers();
             }
 

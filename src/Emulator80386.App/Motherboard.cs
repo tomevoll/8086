@@ -47,7 +47,7 @@ namespace Emulator80386.App
 
             Cpu = new Cpu386(Memory, IOPort);
 
-            byte[] biosRom = BiosLoader.LoadOrGenerateBios(Config.RomPath, Config.RamSizeMB);
+            byte[] biosRom = BiosLoader.LoadOrGenerateBios(Config);
             Memory.LoadBiosRom(biosRom);
         }
 

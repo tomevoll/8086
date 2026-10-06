@@ -8,6 +8,8 @@ namespace Emulator80386.App.Config
     {
         public int RamSizeMB { get; set; } = 16;
         public string RomPath { get; set; } = "bios.bin";
+        public string RomLowPath { get; set; } = "";
+        public string RomHighPath { get; set; } = "";
         public string DriveCFolder { get; set; } = "./hdd";
         public int DisplayWidth { get; set; } = 640;
         public int DisplayHeight { get; set; } = 400;
@@ -53,6 +55,18 @@ namespace Emulator80386.App.Config
                     case "biospath":
                         config.RomPath = value;
                         break;
+                    case "romlowpath":
+                    case "rom_low_path":
+                    case "bioslowpath":
+                    case "lowpath":
+                        config.RomLowPath = value;
+                        break;
+                    case "romhighpath":
+                    case "rom_high_path":
+                    case "bioshighpath":
+                    case "highpath":
+                        config.RomHighPath = value;
+                        break;
                     case "drivecfolder":
                     case "drive_c_folder":
                     case "hddpath":
@@ -81,6 +95,8 @@ namespace Emulator80386.App.Config
                 "",
                 "[BIOS]",
                 $"RomPath={RomPath}",
+                $"RomLowPath={RomLowPath}",
+                $"RomHighPath={RomHighPath}",
                 "",
                 "[Storage]",
                 $"DriveCFolder={DriveCFolder}",
