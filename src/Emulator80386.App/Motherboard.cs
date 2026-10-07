@@ -26,7 +26,6 @@ namespace Emulator80386.App
         public VgaController VgaIo { get; }
         public PostAndDmaController PostDma { get; }
         public PciBusController PciBus { get; }
-
         public Motherboard(EmulatorConfig config)
         {
             Config = config ?? new EmulatorConfig();

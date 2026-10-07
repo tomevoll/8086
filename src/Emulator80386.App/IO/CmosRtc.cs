@@ -36,6 +36,18 @@ namespace Emulator80386.App.IO
             _cmos[0x30] = _cmos[0x17];
             _cmos[0x31] = _cmos[0x18];
 
+            // 64KB block count above 1MB (up to 16MB)
+            ushort ext64k = (ushort)(extKb / 64);
+            _cmos[0x5B] = (byte)(ext64k & 0xFF);
+            _cmos[0x5C] = (byte)((ext64k >> 8) & 0xFF);
+
+            // Memory above 16MB in 64KB blocks
+            int above16MB_64k = Math.Max(0, (ramSizeMB - 16) * 16);
+            _cmos[0x34] = (byte)(above16MB_64k & 0xFF);
+            _cmos[0x35] = (byte)((above16MB_64k >> 8) & 0xFF);
+            _cmos[0x5D] = _cmos[0x34];
+            _cmos[0x5E] = _cmos[0x35];
+
             // Equipment byte
             _cmos[0x14] = 0x2D; // VGA, Math coprocessor, 1 floppy
 

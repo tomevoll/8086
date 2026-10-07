@@ -15,24 +15,32 @@ namespace Emulator80386.App.IO
             // Dev 0: i440FX Host Bridge (0x8086:0x1237)
             _dev0Config[0x00] = 0x86; _dev0Config[0x01] = 0x80;
             _dev0Config[0x02] = 0x37; _dev0Config[0x03] = 0x12;
+            _dev0Config[0x0A] = 0x00; _dev0Config[0x0B] = 0x06; // Host Bridge Class 0x0600
+            _dev0Config[0x0E] = 0x00;
 
             // Dev 1: PIIX3 ISA Bridge (0x8086:0x7000)
             _dev1Config[0x00] = 0x86; _dev1Config[0x01] = 0x80;
             _dev1Config[0x02] = 0x00; _dev1Config[0x03] = 0x70;
+            _dev1Config[0x0A] = 0x01; _dev1Config[0x0B] = 0x06; // ISA Bridge Class 0x0601
+            _dev1Config[0x0E] = 0x00;
 
             // Dev 2: QEMU Standard VGA (0x1234:0x1111)
             _dev2Config[0x00] = 0x34; _dev2Config[0x01] = 0x12;
             _dev2Config[0x02] = 0x11; _dev2Config[0x03] = 0x11;
+            _dev2Config[0x0A] = 0x00; _dev2Config[0x0B] = 0x03; // VGA Display Controller Class 0x0300
+            _dev2Config[0x0E] = 0x00;
         }
 
         public byte Read8(ushort port)
         {
             if (port >= 0x0CFC && port <= 0x0CFF)
             {
+                if ((AddressRegister & 0x80000000) == 0) return 0xFF;
+
                 uint bus = (AddressRegister >> 16) & 0xFF;
                 uint dev = (AddressRegister >> 11) & 0x1F;
                 uint fn = (AddressRegister >> 8) & 0x07;
-                uint reg = (AddressRegister & 0xFC) + (uint)(port - 0x0CFC);
+                uint reg = (AddressRegister & 0xFC) | (uint)(port - 0x0CFC);
 
                 if (bus == 0 && fn == 0 && reg < 256)
                 {
@@ -75,7 +83,7 @@ namespace Emulator80386.App.IO
                 uint bus = (AddressRegister >> 16) & 0xFF;
                 uint dev = (AddressRegister >> 11) & 0x1F;
                 uint fn = (AddressRegister >> 8) & 0x07;
-                uint reg = (AddressRegister & 0xFC) + (uint)(port - 0x0CFC);
+                uint reg = (AddressRegister & 0xFC) | (uint)(port - 0x0CFC);
 
                 if (bus == 0 && fn == 0 && reg < 256)
                 {
@@ -84,7 +92,10 @@ namespace Emulator80386.App.IO
                         _dev0Config[reg] = value;
                         if (reg >= 0x59 && reg <= 0x5F && Memory != null)
                         {
-                            Memory.ShadowRamEnabled = true;
+                            // PAM0 register (0x59) controls 0xF0000-0xFFFFF shadow RAM
+                            byte pam = value;
+                            Memory.BiosShadowRead = (pam & 0x10) != 0 || (pam & 0x01) != 0;
+                            Memory.BiosShadowWrite = (pam & 0x20) != 0 || (pam & 0x02) != 0;
                         }
                     }
                     else if (dev == 1) _dev1Config[reg] = value;

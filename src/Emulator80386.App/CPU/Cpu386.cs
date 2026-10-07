@@ -258,6 +258,41 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
+                // CPUID (0x0F 0xA2)
+                case 0xA2:
+                    {
+                        uint leaf = Reg.EAX;
+                        if (leaf == 0)
+                        {
+                            Reg.EAX = 1; // Max supported input value for basic CPUID
+                            Reg.EBX = 0x756E6547; // "Genu"
+                            Reg.EDX = 0x49656E69; // "ineI"
+                            Reg.ECX = 0x6C65746E; // "ntel" ("GenuineIntel")
+                        }
+                        else if (leaf == 1)
+                        {
+                            Reg.EAX = 0x00000300; // Family 3 (386), Model 0, Stepping 0
+                            Reg.EBX = 0;
+                            Reg.ECX = 0;
+                            Reg.EDX = 0x00000001; // FPU / x86 basic features
+                        }
+                        else if (leaf >= 0x40000000 && leaf <= 0x40000010)
+                        {
+                            Reg.EAX = 0x40000000;
+                            Reg.EBX = 0;
+                            Reg.ECX = 0;
+                            Reg.EDX = 0;
+                        }
+                        else
+                        {
+                            Reg.EAX = 0;
+                            Reg.EBX = 0;
+                            Reg.ECX = 0;
+                            Reg.EDX = 0;
+                        }
+                    }
+                    break;
+
                 // BT r/m, r (0x0F 0xA3)
                 case 0xA3:
                     {
@@ -2408,6 +2443,7 @@ namespace Emulator80386.App.CPU
             int res = a + b;
             Reg.SetFlag(EFlags.CF, res > 0xFF);
             Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x80) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             byte r = (byte)res;
             Reg.UpdateZeroSignParity8(r);
             return r;
@@ -2418,6 +2454,7 @@ namespace Emulator80386.App.CPU
             int res = a + b;
             Reg.SetFlag(EFlags.CF, res > 0xFFFF);
             Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x8000) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             ushort r = (ushort)res;
             Reg.UpdateZeroSignParity16(r);
             return r;
@@ -2428,6 +2465,7 @@ namespace Emulator80386.App.CPU
             ulong res = (ulong)a + b;
             Reg.SetFlag(EFlags.CF, res > 0xFFFFFFFF);
             Reg.SetFlag(EFlags.OF, (((a ^ (uint)res) & (b ^ (uint)res) & 0x80000000)) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ (uint)res) & 0x10) != 0);
             uint r = (uint)res;
             Reg.UpdateZeroSignParity32(r);
             return r;
@@ -2439,6 +2477,7 @@ namespace Emulator80386.App.CPU
             int res = a + b + c;
             Reg.SetFlag(EFlags.CF, res > 0xFF);
             Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x80) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             byte r = (byte)res;
             Reg.UpdateZeroSignParity8(r);
             return r;
@@ -2450,6 +2489,7 @@ namespace Emulator80386.App.CPU
             int res = a + b + c;
             Reg.SetFlag(EFlags.CF, res > 0xFFFF);
             Reg.SetFlag(EFlags.OF, ((a ^ res) & (b ^ res) & 0x8000) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             ushort r = (ushort)res;
             Reg.UpdateZeroSignParity16(r);
             return r;
@@ -2461,6 +2501,7 @@ namespace Emulator80386.App.CPU
             ulong res = (ulong)a + b + c;
             Reg.SetFlag(EFlags.CF, res > 0xFFFFFFFF);
             Reg.SetFlag(EFlags.OF, (((a ^ (uint)res) & (b ^ (uint)res) & 0x80000000)) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ (uint)res) & 0x10) != 0);
             uint r = (uint)res;
             Reg.UpdateZeroSignParity32(r);
             return r;
@@ -2471,6 +2512,7 @@ namespace Emulator80386.App.CPU
             int res = a - b;
             Reg.SetFlag(EFlags.CF, a < b);
             Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (byte)res) & 0x80) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             byte r = (byte)res;
             Reg.UpdateZeroSignParity8(r);
             return r;
@@ -2481,6 +2523,7 @@ namespace Emulator80386.App.CPU
             int res = a - b;
             Reg.SetFlag(EFlags.CF, a < b);
             Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (ushort)res) & 0x8000) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             ushort r = (ushort)res;
             Reg.UpdateZeroSignParity16(r);
             return r;
@@ -2491,6 +2534,7 @@ namespace Emulator80386.App.CPU
             long res = (long)a - b;
             Reg.SetFlag(EFlags.CF, a < b);
             Reg.SetFlag(EFlags.OF, (((a ^ b) & (a ^ (uint)res) & 0x80000000)) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ (uint)res) & 0x10) != 0);
             uint r = (uint)res;
             Reg.UpdateZeroSignParity32(r);
             return r;
@@ -2502,6 +2546,7 @@ namespace Emulator80386.App.CPU
             int res = a - b - c;
             Reg.SetFlag(EFlags.CF, a < (b + c));
             Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (byte)res) & 0x80) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             byte r = (byte)res;
             Reg.UpdateZeroSignParity8(r);
             return r;
@@ -2513,6 +2558,7 @@ namespace Emulator80386.App.CPU
             int res = a - b - c;
             Reg.SetFlag(EFlags.CF, a < (b + c));
             Reg.SetFlag(EFlags.OF, ((a ^ b) & (a ^ (ushort)res) & 0x8000) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ res) & 0x10) != 0);
             ushort r = (ushort)res;
             Reg.UpdateZeroSignParity16(r);
             return r;
@@ -2524,6 +2570,7 @@ namespace Emulator80386.App.CPU
             long res = (long)a - b - c;
             Reg.SetFlag(EFlags.CF, (ulong)a < ((ulong)b + (ulong)c));
             Reg.SetFlag(EFlags.OF, (((a ^ b) & (a ^ (uint)res) & 0x80000000)) != 0);
+            Reg.SetFlag(EFlags.AF, ((a ^ b ^ (uint)res) & 0x10) != 0);
             uint r = (uint)res;
             Reg.UpdateZeroSignParity32(r);
             return r;

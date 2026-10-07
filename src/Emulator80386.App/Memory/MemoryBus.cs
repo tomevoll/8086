@@ -4,7 +4,8 @@ namespace Emulator80386.App.Memory
 {
     public class MemoryBus
     {
-        public bool ShadowRamEnabled { get; set; }
+        public bool BiosShadowRead { get; set; }
+        public bool BiosShadowWrite { get; set; }
         public byte[] Ram { get; }
         public byte[] Vram { get; } = new byte[128 * 1024]; // 0xA0000 - 0xBFFFF (128 KB)
         public byte[] OptionRom { get; } = new byte[128 * 1024]; // 0xC0000 - 0xDFFFF (128 KB)
@@ -49,16 +50,6 @@ namespace Emulator80386.App.Memory
 
         public byte Read8(uint address)
         {
-            // Paged Virtual Address translation (0x80000000 - 0x8FFFFFFF)
-            if (address >= 0x81000000 && address <= 0x8101FFFF)
-            {
-                address = 0x000E0000 + (address & 0x0001FFFF);
-            }
-            else if (address >= 0x80000000 && address < 0xFFFE0000)
-            {
-                address &= 0x00FFFFFF;
-            }
-
             // 32-bit Reset Vector / BIOS mirror (0xFFFE0000 - 0xFFFFFFFF)
             if (address >= 0xFFFE0000)
             {
@@ -76,6 +67,7 @@ namespace Emulator80386.App.Memory
             // Option ROMs (0xC0000 - 0xDFFFF)
             if (address >= 0xC0000 && address <= 0xDFFFF)
             {
+                if (BiosShadowRead && address < Ram.Length) return Ram[address];
                 uint optOffset = address - 0xC0000;
                 return OptionRom[optOffset % OptionRom.Length];
             }
@@ -83,7 +75,7 @@ namespace Emulator80386.App.Memory
             // BIOS ROM (0xE0000 - 0xFFFFF)
             if (address >= 0xE0000 && address <= 0xFFFFF)
             {
-                if (ShadowRamEnabled) return Ram[address];
+                if (BiosShadowRead && address < Ram.Length) return Ram[address];
                 uint romOffset = address - 0xE0000;
                 return BiosRom[romOffset];
             }
@@ -99,16 +91,31 @@ namespace Emulator80386.App.Memory
 
         public void Write8(uint address, byte value)
         {
-            if (address >= 0x80000000 && address < 0xFFFE0000)
-            {
-                address &= 0x00FFFFFF;
-            }
-
             // Video RAM (0xA0000 - 0xBFFFF)
             if (address >= 0xA0000 && address <= 0xBFFFF)
             {
                 uint vramOffset = address - 0xA0000;
                 Vram[vramOffset % Vram.Length] = value;
+                return;
+            }
+
+            // BIOS ROM / Shadow RAM Area (0xE0000 - 0xFFFFF)
+            if (address >= 0xE0000 && address <= 0xFFFFF)
+            {
+                if (address < Ram.Length)
+                {
+                    Ram[address] = value;
+                }
+                return;
+            }
+
+            // Option ROM Area (0xC0000 - 0xDFFFF)
+            if (address >= 0xC0000 && address <= 0xDFFFF)
+            {
+                if (address < Ram.Length)
+                {
+                    Ram[address] = value;
+                }
                 return;
             }
 
@@ -118,7 +125,7 @@ namespace Emulator80386.App.Memory
                 return;
             }
 
-            // System RAM (including C0000-FFFFF shadow RAM space)
+            // System RAM
             if (address < Ram.Length)
             {
                 Ram[address] = value;
