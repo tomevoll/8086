@@ -10,7 +10,7 @@ namespace Emulator80386.App.Config
         public string RomPath { get; set; } = "bios.bin";
         public string RomLowPath { get; set; } = "";
         public string RomHighPath { get; set; } = "";
-        public string VgaRomPath { get; set; } = "vgarom.bin";
+        public string VgaRomPath { get; set; } = "roms/vgabios.bin";
         public string IdeRomPath { get; set; } = "iderom.bin";
         public string DriveCFolder { get; set; } = "./hdd";
         public int DisplayWidth { get; set; } = 640;
