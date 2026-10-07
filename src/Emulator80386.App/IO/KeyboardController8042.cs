@@ -106,6 +106,10 @@ namespace Emulator80386.App.IO
                 else if (value == 0xAE) // Enable Keyboard
                 {
                 }
+                else if (value == 0xD0) // Read Output Port
+                {
+                    _buffer.Enqueue((byte)(0x01 | (A20Enabled ? 0x02 : 0x00)));
+                }
                 else if (value == 0xD1) // Write Output Port
                 {
                     _expectingCommandData = true;

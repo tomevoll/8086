@@ -23,6 +23,8 @@ namespace Emulator80386.App
         public IdeController Ide { get; }
         public FolderDiskController DiskC { get; }
         public VgaRenderer Vga { get; }
+        public VgaController VgaIo { get; }
+        public PostAndDmaController PostDma { get; }
 
         public Motherboard(EmulatorConfig config)
         {
@@ -51,6 +53,7 @@ namespace Emulator80386.App
             IOPort.RegisterDevice(0x71, Cmos);
 
             SystemControl = new SystemControlPort();
+            IOPort.RegisterDevice(0x61, SystemControl);
             IOPort.RegisterDevice(0x92, SystemControl);
             IOPort.RegisterDevice(0xDF, SystemControl);
             IOPort.RegisterDevice(0xEE, SystemControl);
@@ -65,6 +68,16 @@ namespace Emulator80386.App
             IOPort.RegisterDevice(0x3F6, Ide);
 
             Vga = new VgaRenderer();
+            VgaIo = new VgaController();
+            for (ushort p = 0x3B0; p <= 0x3DF; p++)
+            {
+                IOPort.RegisterDevice(p, VgaIo);
+            }
+
+            PostDma = new PostAndDmaController();
+            for (ushort p = 0x00; p <= 0x0F; p++) IOPort.RegisterDevice(p, PostDma);
+            for (ushort p = 0x80; p <= 0x8F; p++) IOPort.RegisterDevice(p, PostDma);
+            for (ushort p = 0xC0; p <= 0xDE; p++) IOPort.RegisterDevice(p, PostDma);
 
             Cpu = new Cpu386(Memory, IOPort);
 

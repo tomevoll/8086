@@ -53,6 +53,7 @@ namespace Emulator80386.App.Memory
             vgaRom[2] = 0x40; // Length = 64 * 512 bytes = 32KB
             vgaRom[3] = 0xCB; // RETF (Return Far immediately upon BIOS POST call)
 
+            FixOptionRomChecksum(vgaRom);
             return vgaRom;
         }
 
@@ -70,7 +71,22 @@ namespace Emulator80386.App.Memory
             ideRom[2] = 0x20; // Length = 32 * 512 bytes = 16KB
             ideRom[3] = 0xCB; // RETF
 
+            FixOptionRomChecksum(ideRom);
             return ideRom;
+        }
+
+        public static void FixOptionRomChecksum(byte[] rom)
+        {
+            if (rom == null || rom.Length < 4) return;
+            int len = rom[2] * 512;
+            if (len <= 0 || len > rom.Length) len = rom.Length;
+
+            byte sum = 0;
+            for (int i = 0; i < len - 1; i++)
+            {
+                sum += rom[i];
+            }
+            rom[len - 1] = (byte)((0x100 - sum) & 0xFF);
         }
 
         public static byte[] GenerateOpenBios(int ramSizeMB)
