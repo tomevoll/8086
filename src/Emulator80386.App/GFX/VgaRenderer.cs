@@ -38,8 +38,14 @@ namespace Emulator80386.App.GFX
             return sb.ToString();
         }
 
-        public void RenderTextMode(byte[] vram, ushort crtcStartWord = 0)
+        public void RenderTextMode(byte[] vram, ushort crtcStartWord = 0, bool videoEnabled = true)
         {
+            if (!videoEnabled)
+            {
+                Array.Clear(PixelBuffer, 0, PixelBuffer.Length);
+                return;
+            }
+
             if (vram == null || vram.Length < 0x18000 + (Columns * Rows * 2)) return;
 
             int vramOffset = 0x18000 + (crtcStartWord * 2);

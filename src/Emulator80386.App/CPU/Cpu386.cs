@@ -896,15 +896,18 @@ namespace Emulator80386.App.CPU
 
                 case 0xA4: // MOVSB
                     {
-                        int count = repPrefix ? (int)Reg.CX : 1;
+                        int count = repPrefix ? (addressSize32 ? (int)Reg.ECX : (int)Reg.CX) : 1;
                         int step = Reg.GetFlag(EFlags.DF) ? -1 : 1;
                         for (int i = 0; i < count; i++)
                         {
-                            Memory.Write8(LinearAddress(Reg.ES, Reg.DI), Memory.Read8(LinearAddress(defaultDs, Reg.SI)));
-                            Reg.SI = (ushort)(Reg.SI + step);
-                            Reg.DI = (ushort)(Reg.DI + step);
+                            uint srcAddr = addressSize32 ? LinearAddress(defaultDs, Reg.ESI) : LinearAddress(defaultDs, Reg.SI);
+                            uint destAddr = addressSize32 ? LinearAddress(Reg.ES, Reg.EDI) : LinearAddress(Reg.ES, Reg.DI);
+                            Memory.Write8(destAddr, Memory.Read8(srcAddr));
+
+                            if (addressSize32) { Reg.ESI = (uint)(Reg.ESI + step); Reg.EDI = (uint)(Reg.EDI + step); }
+                            else { Reg.SI = (ushort)(Reg.SI + step); Reg.DI = (ushort)(Reg.DI + step); }
                         }
-                        if (repPrefix) Reg.CX = 0;
+                        if (repPrefix) { if (addressSize32) Reg.ECX = 0; else Reg.CX = 0; }
                     }
                     break;
 
@@ -2069,6 +2072,18 @@ namespace Emulator80386.App.CPU
                 Push32((uint)Reg.EFlags);
                 Push32(Reg.CS.Selector);
                 Push32(Reg.EIP);
+
+                uint gateAddr = Reg.IdtBase + (uint)(vector * 8);
+                if (gateAddr + 7 <= Reg.IdtBase + Reg.IdtLimit)
+                {
+                    ushort targetIpLow = Memory.Read16(gateAddr);
+                    ushort targetCs = Memory.Read16(gateAddr + 2);
+                    ushort targetIpHigh = Memory.Read16(gateAddr + 6);
+                    uint targetEip = (uint)(targetIpLow | (targetIpHigh << 16));
+
+                    SetSegmentSelector(1, targetCs);
+                    Reg.EIP = targetEip;
+                }
             }
             else
             {
@@ -2080,8 +2095,7 @@ namespace Emulator80386.App.CPU
                 ushort newIp = Memory.Read16(ivtAddr);
                 ushort newCs = Memory.Read16(ivtAddr + 2);
 
-                Reg.CS.Selector = newCs;
-                Reg.CS.Base = (uint)(newCs << 4);
+                SetSegmentSelector(1, newCs);
                 Reg.EIP = newIp;
             }
         }

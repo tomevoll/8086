@@ -35,6 +35,50 @@ namespace Emulator80386.Tests
         }
 
         [Fact]
+        public void TestVgaModeControl3D8AndAttributeFlipFlop()
+        {
+            var vga = new VgaController();
+
+            // Test 0x3D8 Mode Control
+            vga.Write8(0x3D8, 0x29); // Video Enable (bit 3) + 80x25 text (bit 0) + Blink (bit 5)
+            Assert.True(vga.VideoEnabled);
+            Assert.Equal(0x29, vga.Read8(0x3D8));
+
+            vga.Write8(0x3D8, 0x01); // Video Disabled (bit 3 = 0)
+            Assert.False(vga.VideoEnabled);
+
+            // Test Attribute Controller 0x3C0 Flip-Flop
+            vga.Read8(0x3DA); // Reset flip-flop to index expecting state
+            Assert.False(vga.AttributeFlipFlop);
+
+            vga.Write8(0x3C0, 0x30); // Write index 0x10 with PAS bit 5 set (0x20 | 0x10)
+            Assert.True(vga.AttributeFlipFlop);
+            Assert.True(vga.PaletteAddressSource);
+
+            vga.Write8(0x3C0, 0x0C); // Write data 0x0C to Attribute Reg 0x10
+            Assert.False(vga.AttributeFlipFlop);
+            Assert.Equal(0x0C, vga.AttributeRegs[0x10]);
+        }
+
+        [Fact]
+        public void TestMemoryBusPureRamSemantics()
+        {
+            var mem = new MemoryBus(16);
+
+            // Read uninitialized lower RAM
+            Assert.Equal(0x00, mem.Read8(0x00000));
+            Assert.Equal(0x00, mem.Read8(0x01000));
+            Assert.Equal(0x00, mem.Read8(0x07C00));
+
+            // Write and read back from RAM
+            mem.Write8(0x01000, 0x42);
+            Assert.Equal(0x42, mem.Read8(0x01000));
+
+            // Verify BiosRom at 0xF0000
+            Assert.Equal(mem.BiosRom[0x10000], mem.Read8(0xF0000));
+        }
+
+        [Fact]
         public void TestPort61RefreshBitToggle()
         {
             var sys = new SystemControlPort();

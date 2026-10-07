@@ -48,6 +48,12 @@ namespace Emulator80386.App.Memory
 
         public byte Read8(uint address)
         {
+            // Paged Virtual Address translation (0x80000000 - 0x8FFFFFFF -> 0x00000000)
+            if (address >= 0x80000000 && address < 0xFFFE0000)
+            {
+                address &= 0x00FFFFFF;
+            }
+
             // 32-bit Reset Vector / BIOS mirror (0xFFFE0000 - 0xFFFFFFFF)
             if (address >= 0xFFFE0000)
             {
@@ -79,12 +85,7 @@ namespace Emulator80386.App.Memory
             // RAM
             if (address < Ram.Length)
             {
-                byte val = Ram[address];
-                if (val == 0 && address < BiosRom.Length)
-                {
-                    return BiosRom[address];
-                }
-                return val;
+                return Ram[address];
             }
 
             return 0xFF;
@@ -92,6 +93,11 @@ namespace Emulator80386.App.Memory
 
         public void Write8(uint address, byte value)
         {
+            if (address >= 0x80000000 && address < 0xFFFE0000)
+            {
+                address &= 0x00FFFFFF;
+            }
+
             // Video RAM (0xA0000 - 0xBFFFF)
             if (address >= 0xA0000 && address <= 0xBFFFF)
             {
@@ -107,10 +113,7 @@ namespace Emulator80386.App.Memory
             }
 
             // System RAM
-            if (address < Ram.Length)
-            {
-                Ram[address] = value;
-            }
+            Ram[address % Ram.Length] = value;
         }
 
         public ushort Read16(uint address)

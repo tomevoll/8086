@@ -6,6 +6,9 @@ namespace Emulator80386.App.IO
     {
         public byte MiscOutput { get; set; } = 0x63; // Color mode default (0x3Dx base)
 
+        public byte ModeControl3D8 { get; set; } = 0x29; // Color mode control (Bit 3 = Video Enable)
+        public byte ModeControl3B8 { get; set; } = 0x00; // Mono mode control (Bit 3 = Video Enable)
+
         public byte SequencerIndex { get; set; }
         public byte[] SequencerRegs { get; } = new byte[8];
 
@@ -18,6 +21,7 @@ namespace Emulator80386.App.IO
         public byte AttributeIndex { get; set; }
         public byte[] AttributeRegs { get; } = new byte[32];
         public bool AttributeFlipFlop { get; set; } // false = expecting index, true = expecting data
+        public bool PaletteAddressSource { get; set; } = true; // Bit 5 of 0x3C0
 
         public byte DacMask { get; set; } = 0xFF;
         public byte DacWriteIndex { get; set; }
@@ -28,10 +32,20 @@ namespace Emulator80386.App.IO
 
         private byte _inputStatus1Toggle;
 
+        public bool VideoEnabled => ((ModeControl3D8 & 0x08) != 0 || (ModeControl3B8 & 0x08) != 0) && PaletteAddressSource;
+
+        public ushort CrtcStartWord => (ushort)((CrtcRegs[0x0C] << 8) | CrtcRegs[0x0D]);
+
         public byte Read8(ushort port)
         {
             switch (port)
             {
+                case 0x3B8:
+                    return ModeControl3B8;
+
+                case 0x3D8:
+                    return ModeControl3D8;
+
                 case 0x3C0:
                     return AttributeIndex;
 
@@ -102,10 +116,19 @@ namespace Emulator80386.App.IO
         {
             switch (port)
             {
+                case 0x3B8:
+                    ModeControl3B8 = value;
+                    break;
+
+                case 0x3D8:
+                    ModeControl3D8 = value;
+                    break;
+
                 case 0x3C0:
                     if (!AttributeFlipFlop)
                     {
-                        AttributeIndex = value;
+                        AttributeIndex = (byte)(value & 0x1F);
+                        PaletteAddressSource = (value & 0x20) != 0;
                     }
                     else
                     {
@@ -167,7 +190,14 @@ namespace Emulator80386.App.IO
 
                 case 0x3B5:
                 case 0x3D5:
-                    CrtcRegs[CrtcIndex & 0x3F] = value;
+                    {
+                        byte index = (byte)(CrtcIndex & 0x3F);
+                        bool protect = (CrtcRegs[0x11] & 0x80) != 0;
+                        if (!protect || index > 7 || index == 7)
+                        {
+                            CrtcRegs[index] = value;
+                        }
+                    }
                     break;
             }
         }

@@ -25,6 +25,7 @@ namespace Emulator80386.App
         public VgaRenderer Vga { get; }
         public VgaController VgaIo { get; }
         public PostAndDmaController PostDma { get; }
+        public PciBusController PciBus { get; }
 
         public Motherboard(EmulatorConfig config)
         {
@@ -79,6 +80,9 @@ namespace Emulator80386.App
             for (ushort p = 0x80; p <= 0x8F; p++) IOPort.RegisterDevice(p, PostDma);
             for (ushort p = 0xC0; p <= 0xDE; p++) IOPort.RegisterDevice(p, PostDma);
 
+            PciBus = new PciBusController();
+            for (ushort p = 0x0CF8; p <= 0x0CFF; p++) IOPort.RegisterDevice(p, PciBus);
+
             Cpu = new Cpu386(Memory, IOPort);
 
             byte[] biosRom = BiosLoader.LoadOrGenerateBios(Config);
@@ -113,8 +117,8 @@ namespace Emulator80386.App
                 Cpu.Step();
             }
 
-            ushort startWord = (ushort)((VgaIo.CrtcRegs[0x0C] << 8) | VgaIo.CrtcRegs[0x0D]);
-            Vga.RenderTextMode(Memory.Vram, startWord);
+            ushort startWord = VgaIo.CrtcStartWord;
+            Vga.RenderTextMode(Memory.Vram, startWord, VgaIo.VideoEnabled);
         }
     }
 }
