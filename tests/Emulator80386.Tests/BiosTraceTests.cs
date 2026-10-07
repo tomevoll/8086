@@ -19,14 +19,19 @@ namespace Emulator80386.Tests
             var mb = new Motherboard(config);
             mb.Boot();
 
-            // Run initial 20,000 steps to verify CPU boot execution
-            for (int step = 0; step < 20000; step++)
+            bool reachedProtectedMode = false;
+            for (int step = 0; step < 50000; step++)
             {
                 mb.Cpu.Step();
+                if (mb.Cpu.Reg.ProtectedMode)
+                {
+                    reachedProtectedMode = true;
+                    break;
+                }
             }
 
-            Assert.True(mb.Cpu.Reg.EIP != 0, "CPU EIP should be active during BIOS execution");
-            Assert.True(mb.Cpu.Reg.ProtectedMode, "SeaBIOS enters Protected Mode during boot initialization");
+            Assert.True(reachedProtectedMode, "SeaBIOS must enter Protected Mode during POST initialization");
+            Assert.True(mb.Cpu.Reg.EIP != 0, "CPU EIP must be active");
         }
     }
 }

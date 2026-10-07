@@ -199,6 +199,15 @@ namespace Emulator80386.App.CPU
                     Reg.CR0 &= ~8u;
                     break;
 
+                // RDTSC (0x0F 0x31)
+                case 0x31:
+                    {
+                        ulong tsc = (ulong)DateTime.UtcNow.Ticks;
+                        Reg.EAX = (uint)tsc;
+                        Reg.EDX = (uint)(tsc >> 32);
+                    }
+                    break;
+
                 // MOV r32, CR0/CR2/CR3 (0x0F 0x20)
                 case 0x20:
                     {
@@ -1268,6 +1277,13 @@ namespace Emulator80386.App.CPU
                             bool carry = (res >> 8) != 0;
                             Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
                         }
+                        else if (m.Reg == 5) // IMUL AL
+                        {
+                            short res = (short)((sbyte)Reg.AL * (sbyte)val);
+                            Reg.AX = (ushort)res;
+                            bool carry = res < sbyte.MinValue || res > sbyte.MaxValue;
+                            Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                        }
                         else if (m.Reg == 6) // DIV AL
                         {
                             if (val != 0)
@@ -1275,6 +1291,16 @@ namespace Emulator80386.App.CPU
                                 ushort num = Reg.AX;
                                 Reg.AL = (byte)(num / val);
                                 Reg.AH = (byte)(num % val);
+                            }
+                        }
+                        else if (m.Reg == 7) // IDIV AL
+                        {
+                            sbyte sval = (sbyte)val;
+                            if (sval != 0)
+                            {
+                                short num = (short)Reg.AX;
+                                Reg.AL = (byte)(sbyte)(num / sval);
+                                Reg.AH = (byte)(sbyte)(num % sval);
                             }
                         }
                     }
@@ -1301,6 +1327,14 @@ namespace Emulator80386.App.CPU
                                 bool carry = Reg.EDX != 0;
                                 Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
                             }
+                            else if (m.Reg == 5) // IMUL EAX
+                            {
+                                long res = (long)(int)Reg.EAX * (int)val;
+                                Reg.EAX = (uint)res;
+                                Reg.EDX = (uint)(res >> 32);
+                                bool carry = res < int.MinValue || res > int.MaxValue;
+                                Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                            }
                             else if (m.Reg == 6) // DIV EAX
                             {
                                 ulong num = ((ulong)Reg.EDX << 32) | Reg.EAX;
@@ -1308,6 +1342,16 @@ namespace Emulator80386.App.CPU
                                 {
                                     Reg.EAX = (uint)(num / val);
                                     Reg.EDX = (uint)(num % val);
+                                }
+                            }
+                            else if (m.Reg == 7) // IDIV EAX
+                            {
+                                long num = (long)(((ulong)Reg.EDX << 32) | Reg.EAX);
+                                int sval = (int)val;
+                                if (sval != 0)
+                                {
+                                    Reg.EAX = (uint)(int)(num / sval);
+                                    Reg.EDX = (uint)(int)(num % sval);
                                 }
                             }
                         }
@@ -1329,6 +1373,14 @@ namespace Emulator80386.App.CPU
                                 bool carry = Reg.DX != 0;
                                 Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
                             }
+                            else if (m.Reg == 5) // IMUL AX
+                            {
+                                int res = (int)(short)Reg.AX * (short)val;
+                                Reg.AX = (ushort)res;
+                                Reg.DX = (ushort)(res >> 16);
+                                bool carry = res < short.MinValue || res > short.MaxValue;
+                                Reg.SetFlag(EFlags.CF, carry); Reg.SetFlag(EFlags.OF, carry);
+                            }
                             else if (m.Reg == 6) // DIV AX
                             {
                                 uint num = (uint)((Reg.DX << 16) | Reg.AX);
@@ -1336,6 +1388,16 @@ namespace Emulator80386.App.CPU
                                 {
                                     Reg.AX = (ushort)(num / val);
                                     Reg.DX = (ushort)(num % val);
+                                }
+                            }
+                            else if (m.Reg == 7) // IDIV AX
+                            {
+                                int num = (int)((Reg.DX << 16) | Reg.AX);
+                                short sval = (short)val;
+                                if (sval != 0)
+                                {
+                                    Reg.AX = (ushort)(short)(num / sval);
+                                    Reg.DX = (ushort)(short)(num % sval);
                                 }
                             }
                         }
@@ -1773,6 +1835,45 @@ namespace Emulator80386.App.CPU
                     break;
 
                 // LEAVE (0xC9)
+                case 0xC8: // ENTER imm16, imm8
+                    {
+                        ushort allocSize = Fetch16();
+                        byte nestingLevel = (byte)(Fetch8() & 31);
+                        if (operandSize32)
+                        {
+                            Push32(Reg.EBP);
+                            uint framePtr = Reg.ESP;
+                            if (nestingLevel > 0)
+                            {
+                                for (int i = 1; i < nestingLevel; i++)
+                                {
+                                    Reg.EBP -= 4;
+                                    Push32(Memory.Read32(Reg.EBP));
+                                }
+                                Push32(framePtr);
+                            }
+                            Reg.EBP = framePtr;
+                            Reg.ESP -= allocSize;
+                        }
+                        else
+                        {
+                            Push16(Reg.BP);
+                            ushort framePtr = Reg.SP;
+                            if (nestingLevel > 0)
+                            {
+                                for (int i = 1; i < nestingLevel; i++)
+                                {
+                                    Reg.BP -= 2;
+                                    Push16(Memory.Read16(LinearAddress(Reg.SS, Reg.BP)));
+                                }
+                                Push16(framePtr);
+                            }
+                            Reg.BP = framePtr;
+                            Reg.SP -= allocSize;
+                        }
+                    }
+                    break;
+
                 case 0xC9:
                     if (operandSize32)
                     {
@@ -1945,6 +2046,20 @@ namespace Emulator80386.App.CPU
                     val = (byte)((val >> 1) | (bot ? 0x80 : 0));
                     Reg.SetFlag(EFlags.CF, bot);
                 }
+                else if (op == 2) // RCL
+                {
+                    bool top = (val & 0x80) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (byte)((val << 1) | (cf ? 1 : 0));
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 3) // RCR
+                {
+                    bool bot = (val & 0x01) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (byte)((val >> 1) | (cf ? 0x80 : 0));
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
             }
             Reg.UpdateZeroSignParity8(val);
             return val;
@@ -1983,6 +2098,20 @@ namespace Emulator80386.App.CPU
                     val = (ushort)((val >> 1) | (bot ? 0x8000 : 0));
                     Reg.SetFlag(EFlags.CF, bot);
                 }
+                else if (op == 2) // RCL
+                {
+                    bool top = (val & 0x8000) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (ushort)((val << 1) | (cf ? 1 : 0));
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 3) // RCR
+                {
+                    bool bot = (val & 0x0001) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (ushort)((val >> 1) | (cf ? 0x8000 : 0));
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
             }
             Reg.UpdateZeroSignParity16(val);
             return val;
@@ -2019,6 +2148,20 @@ namespace Emulator80386.App.CPU
                 {
                     bool bot = (val & 0x00000001) != 0;
                     val = (val >> 1) | (bot ? 0x80000000u : 0u);
+                    Reg.SetFlag(EFlags.CF, bot);
+                }
+                else if (op == 2) // RCL
+                {
+                    bool top = (val & 0x80000000) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (val << 1) | (cf ? 1u : 0u);
+                    Reg.SetFlag(EFlags.CF, top);
+                }
+                else if (op == 3) // RCR
+                {
+                    bool bot = (val & 0x00000001) != 0;
+                    bool cf = Reg.GetFlag(EFlags.CF);
+                    val = (val >> 1) | (cf ? 0x80000000u : 0u);
                     Reg.SetFlag(EFlags.CF, bot);
                 }
             }
