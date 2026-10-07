@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Emulator80386.App;
 using Emulator80386.App.Config;
+using Emulator80386.App.Memory;
 using Xunit;
 
 namespace Emulator80386.Tests
@@ -9,29 +10,23 @@ namespace Emulator80386.Tests
     public class BiosTraceTests
     {
         [Fact]
-        public void TraceSeaBiosSteps27800To27815()
+        public void VerifyRealBiosPostExecution()
         {
-            string seaBiosPath = "/usr/share/seabios/bios.bin";
-            if (!File.Exists(seaBiosPath)) return;
+            string biosPath = BiosLoader.ResolveRomPath("bios.bin");
+            Assert.True(File.Exists(biosPath), $"Real BIOS binary 'bios.bin' must exist at {biosPath}");
 
-            var config = new EmulatorConfig { RamSizeMB = 16, RomPath = seaBiosPath };
+            var config = new EmulatorConfig { RamSizeMB = 16, RomPath = biosPath };
             var mb = new Motherboard(config);
             mb.Boot();
 
-            for (int step = 0; step < 27816; step++)
+            // Run initial 20,000 steps to verify CPU boot execution
+            for (int step = 0; step < 20000; step++)
             {
-                if (step >= 27800)
-                {
-                    uint ip = mb.Cpu.Reg.EIP;
-                    ushort cs = mb.Cpu.Reg.CS.Selector;
-                    uint linear = mb.Cpu.LinearAddress(mb.Cpu.Reg.CS, ip);
-                    byte op = mb.Memory.Read8(linear);
-
-                    Console.WriteLine($"[{step:D5}] CS:IP={cs:X4}:{ip:X8} (Lin {linear:X8}) Op={op:X2} EAX={mb.Cpu.Reg.EAX:X8} EBX={mb.Cpu.Reg.EBX:X8} ECX={mb.Cpu.Reg.ECX:X8} EDX={mb.Cpu.Reg.EDX:X8} ESP={mb.Cpu.Reg.ESP:X8}");
-                }
-
                 mb.Cpu.Step();
             }
+
+            Assert.True(mb.Cpu.Reg.EIP != 0, "CPU EIP should be active during BIOS execution");
+            Assert.True(mb.Cpu.Reg.ProtectedMode, "SeaBIOS enters Protected Mode during boot initialization");
         }
     }
 }

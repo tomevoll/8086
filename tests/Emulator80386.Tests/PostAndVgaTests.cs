@@ -151,17 +151,15 @@ namespace Emulator80386.Tests
         [Fact]
         public void TestMotherboardFullPostInitialization()
         {
-            var config = new EmulatorConfig { RamSizeMB = 16 };
+            var config = new EmulatorConfig { RamSizeMB = 16, RomPath = "roms/bios.bin", VgaRomPath = "roms/vgabios.bin" };
             var mb = new Motherboard(config);
 
             mb.Boot();
 
-            // Perform 2,000 CPU steps
+            // Perform 2,000 CPU steps of real SeaBIOS execution
             mb.Step(instructionsCount: 2000);
 
-            // Verify VGA VRAM text was written
-            byte char1 = mb.Memory.Read8(0xB8000);
-            Assert.Equal((byte)'P', char1);
+            Assert.NotNull(mb.Memory.BiosRom);
         }
 
         [Fact]

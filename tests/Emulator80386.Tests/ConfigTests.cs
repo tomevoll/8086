@@ -16,7 +16,7 @@ namespace Emulator80386.Tests
             {
                 var config = EmulatorConfig.LoadFromFile(tempFile);
                 Assert.Equal(16, config.RamSizeMB);
-                Assert.Equal("bios.bin", config.RomPath);
+                Assert.Equal("roms/bios.bin", config.RomPath);
                 Assert.Equal("./hdd", config.DriveCFolder);
                 Assert.True(File.Exists(tempFile));
             }

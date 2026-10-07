@@ -7,7 +7,7 @@ namespace Emulator80386.App.Config
     public class EmulatorConfig
     {
         public int RamSizeMB { get; set; } = 16;
-        public string RomPath { get; set; } = "bios.bin";
+        public string RomPath { get; set; } = "roms/bios.bin";
         public string RomLowPath { get; set; } = "";
         public string RomHighPath { get; set; } = "";
         public string VgaRomPath { get; set; } = "roms/vgabios.bin";

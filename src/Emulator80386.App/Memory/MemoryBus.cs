@@ -48,8 +48,12 @@ namespace Emulator80386.App.Memory
 
         public byte Read8(uint address)
         {
-            // Paged Virtual Address translation (0x80000000 - 0x8FFFFFFF -> 0x00000000)
-            if (address >= 0x80000000 && address < 0xFFFE0000)
+            // Paged Virtual Address translation (0x80000000 - 0x8FFFFFFF)
+            if (address >= 0x81000000 && address <= 0x8101FFFF)
+            {
+                address = 0x000E0000 + (address & 0x0001FFFF);
+            }
+            else if (address >= 0x80000000 && address < 0xFFFE0000)
             {
                 address &= 0x00FFFFFF;
             }

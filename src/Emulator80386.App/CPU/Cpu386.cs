@@ -52,17 +52,17 @@ namespace Emulator80386.App.CPU
         {
             if (Halted) return;
 
-            bool operandSize32 = false;
-            bool addressSize32 = false;
+            bool is32BitCode = Reg.ProtectedMode && Reg.CS.Is32Bit;
+            bool operandSize32 = is32BitCode;
+            bool addressSize32 = is32BitCode;
             bool repPrefix = false;
             bool repnePrefix = false;
             SegmentRegister? overrideSegment = null;
-
             while (true)
             {
                 byte prefix = Memory.Read8(LinearAddress(Reg.CS, Reg.EIP));
-                if (prefix == 0x66) { operandSize32 = true; Reg.EIP++; }
-                else if (prefix == 0x67) { addressSize32 = true; Reg.EIP++; }
+                if (prefix == 0x66) { operandSize32 = !is32BitCode; Reg.EIP++; }
+                else if (prefix == 0x67) { addressSize32 = !is32BitCode; Reg.EIP++; }
                 else if (prefix == 0xF3) { repPrefix = true; Reg.EIP++; }
                 else if (prefix == 0xF2) { repnePrefix = true; Reg.EIP++; }
                 else if (prefix == 0x2E) { overrideSegment = Reg.CS; Reg.EIP++; }
@@ -2143,6 +2143,7 @@ namespace Emulator80386.App.CPU
             if (!Reg.ProtectedMode)
             {
                 seg.Base = (uint)(selector << 4);
+                seg.Is32Bit = false;
             }
             else
             {
@@ -2153,12 +2154,15 @@ namespace Emulator80386.App.CPU
                     byte b2 = Memory.Read8(descAddr + 2);
                     byte b3 = Memory.Read8(descAddr + 3);
                     byte b4 = Memory.Read8(descAddr + 4);
+                    byte b6 = Memory.Read8(descAddr + 6);
                     byte b7 = Memory.Read8(descAddr + 7);
                     seg.Base = (uint)(b2 | (b3 << 8) | (b4 << 16) | (b7 << 24));
+                    seg.Is32Bit = (b6 & 0x40) != 0; // Bit 22 D/B flag
                 }
                 else
                 {
                     seg.Base = 0;
+                    seg.Is32Bit = false;
                 }
             }
         }

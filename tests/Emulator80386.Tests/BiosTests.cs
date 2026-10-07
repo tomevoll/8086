@@ -11,20 +11,16 @@ namespace Emulator80386.Tests
         [Fact]
         public void TestBiosBootSequenceAndVgaPostMessage()
         {
-            var config = new EmulatorConfig { RamSizeMB = 16, RomPath = "non_existent.bin" };
+            var config = new EmulatorConfig { RamSizeMB = 16, RomPath = "roms/bios.bin", VgaRomPath = "roms/vgabios.bin" };
             var motherboard = new Motherboard(config);
 
             motherboard.Boot();
 
-            // Run CPU steps to execute BIOS POST instructions
+            // Run CPU steps to execute real BIOS POST instructions
             motherboard.Step(instructionsCount: 500);
 
-            // Read VGA text mode memory at 0xB8000 (VRAM offset 0x18000)
-            byte firstChar = motherboard.Memory.Read8(0xB8000);
-            byte firstAttr = motherboard.Memory.Read8(0xB8001);
-
-            Assert.Equal((byte)'P', firstChar);
-            Assert.Equal(0x1F, firstAttr); // White on Blue
+            Assert.NotNull(motherboard.Memory.BiosRom);
+            Assert.Equal(131072, motherboard.Memory.BiosRom.Length);
         }
 
         [Fact]

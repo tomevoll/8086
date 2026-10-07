@@ -31,6 +31,7 @@ namespace Emulator80386.App.CPU
         public uint Base { get; set; }
         public uint Limit { get; set; } = 0xFFFF;
         public byte Attributes { get; set; }
+        public bool Is32Bit { get; set; }
     }
 
     public class CpuRegisters
