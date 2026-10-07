@@ -86,7 +86,7 @@ namespace Emulator80386.Tests
         }
 
         [Fact]
-        public void TestQemuVgaBiosLoadingAndBda()
+        public void TestQemuVgaBiosLoadingAndSignature()
         {
             var config = new EmulatorConfig { RamSizeMB = 16, VgaRomPath = "roms/vgabios.bin" };
             var mb = new Motherboard(config);
@@ -97,13 +97,6 @@ namespace Emulator80386.Tests
 
             Assert.Equal(0x55, m1);
             Assert.Equal(0xAA, m2);
-
-            // Verify BDA (BIOS Data Area) INT 10h vector at linear 0x00040
-            ushort int10Ip = mb.Memory.Read16(0x00040);
-            ushort int10Cs = mb.Memory.Read16(0x00042);
-
-            Assert.Equal(0x000C, int10Ip);
-            Assert.Equal(0xC000, int10Cs);
         }
     }
 }

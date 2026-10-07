@@ -89,23 +89,6 @@ namespace Emulator80386.App
 
             byte[] ideRom = BiosLoader.LoadOrGenerateIdeOptionRom(Config.IdeRomPath);
             Memory.LoadIdeOptionRom(ideRom);
-
-            InitializeBdaAndIvt();
-        }
-
-        private void InitializeBdaAndIvt()
-        {
-            // Set up BDA (BIOS Data Area at 0x00400)
-            Memory.Write16(0x00410, 0x0020); // Equipment word: 80x25 color text
-            Memory.Write8(0x00449, 0x03);   // Video mode 0x03
-            Memory.Write16(0x0044A, 80);    // 80 columns
-            Memory.Write16(0x00463, 0x03D4);// CRTC Base Port 0x3D4
-            Memory.Write8(0x00484, 24);     // 25 rows (0-24)
-            Memory.Write16(0x00485, 16);    // Character height 16
-
-            // Set up INT 10h (IVT vector 0x10 at linear address 0x00040) -> 0xC000:0x000C
-            Memory.Write16(0x00040, 0x000C); // IP
-            Memory.Write16(0x00042, 0xC000); // CS
         }
 
         public void Boot()
