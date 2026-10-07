@@ -2,6 +2,7 @@
 **/obj/
 *.bin
 *.BIN
+!roms/bios.bin
 !roms/vgabios.bin
 *.user
 *.suo
