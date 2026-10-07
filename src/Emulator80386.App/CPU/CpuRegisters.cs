@@ -76,6 +76,12 @@ namespace Emulator80386.App.CPU
         public SegmentRegister FS { get; } = new SegmentRegister { Selector = 0x0000, Base = 0x00000 };
         public SegmentRegister GS { get; } = new SegmentRegister { Selector = 0x0000, Base = 0x00000 };
 
+        // GDT & IDT
+        public uint GdtBase { get; set; }
+        public ushort GdtLimit { get; set; }
+        public uint IdtBase { get; set; }
+        public ushort IdtLimit { get; set; }
+
         // Control Registers
         public uint CR0 { get; set; }
         public uint CR2 { get; set; }

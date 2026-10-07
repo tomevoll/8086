@@ -66,6 +66,10 @@ namespace Emulator80386.App.IO
                 {
                     _cmos[0x0C] = 0x00;
                 }
+                else if ((_cmosIndex & 0x7F) == 0x0F)
+                {
+                    _cmos[0x0F] = 0x00; // Auto-clear shutdown code on read
+                }
                 return val;
             }
             return 0xFF;

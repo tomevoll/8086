@@ -1,9 +1,7 @@
 using System;
 using System.IO;
-using System.Text;
 using Emulator80386.App;
 using Emulator80386.App.Config;
-using Emulator80386.App.CPU;
 using Xunit;
 
 namespace Emulator80386.Tests
@@ -11,7 +9,7 @@ namespace Emulator80386.Tests
     public class BiosTraceTests
     {
         [Fact]
-        public void TraceAwardBiosBoot()
+        public void TestAwardBiosPostSequence()
         {
             string? biosFile = RealBiosTests.FindBiosFile();
             if (biosFile == null || !File.Exists(biosFile)) return;
@@ -20,25 +18,23 @@ namespace Emulator80386.Tests
             var mb = new Motherboard(config);
             mb.Boot();
 
-            var sb = new StringBuilder();
-
-            for (int step = 0; step < 10000; step++)
+            byte lastPostCode = 0;
+            for (int step = 0; step < 500000; step++)
             {
-                uint ip = mb.Cpu.Reg.EIP;
-                ushort cs = mb.Cpu.Reg.CS.Selector;
-                uint linear = mb.Cpu.LinearAddress(mb.Cpu.Reg.CS, ip);
-                byte op = mb.Memory.Read8(linear);
-
-                if (step >= 9950)
+                if (mb.PostDma.LastPostCode != lastPostCode)
                 {
-                    sb.AppendLine($"[{step:D5}] CS:IP={cs:X4}:{ip:X4} (Linear {linear:X8}) Op={op:X2} AX={mb.Cpu.Reg.AX:X4} DX={mb.Cpu.Reg.DX:X4} ZF={(mb.Cpu.Reg.GetFlag(EFlags.ZF) ? 1 : 0)}");
+                    lastPostCode = mb.PostDma.LastPostCode;
+                    Console.WriteLine($"[Award BIOS Step {step:D6}] POST Code Port 0x80 = 0x{lastPostCode:X2}");
                 }
 
                 if (mb.Cpu.Halted) break;
                 mb.Cpu.Step();
             }
 
-            File.WriteAllText("/tmp/bios_trace.txt", sb.ToString());
+            string screen = mb.Vga.DumpTextScreen(mb.Memory.Vram);
+            Console.WriteLine("=== Award BIOS VRAM OUTPUT ===");
+            Console.WriteLine(screen);
+            Console.WriteLine("=============================");
         }
     }
 }

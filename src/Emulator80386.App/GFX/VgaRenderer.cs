@@ -11,11 +11,39 @@ namespace Emulator80386.App.GFX
 
         public uint[] PixelBuffer { get; } = new uint[Width * Height];
 
-        public void RenderTextMode(byte[] vram)
+        public string DumpTextScreen(byte[] vram, ushort crtcStartWord = 0)
+        {
+            if (vram == null || vram.Length < 0x18000 + (Columns * Rows * 2)) return "";
+
+            int vramOffset = 0x18000 + (crtcStartWord * 2);
+            if (vramOffset + (Columns * Rows * 2) > vram.Length) vramOffset = 0x18000;
+            var sb = new System.Text.StringBuilder();
+
+            for (int row = 0; row < Rows; row++)
+            {
+                var line = new char[Columns];
+                for (int col = 0; col < Columns; col++)
+                {
+                    int index = vramOffset + (row * Columns + col) * 2;
+                    byte ch = vram[index];
+                    line[col] = ch >= 32 && ch <= 126 ? (char)ch : (ch == 0 ? ' ' : '?');
+                }
+                string strLine = new string(line);
+                if (!string.IsNullOrWhiteSpace(strLine))
+                {
+                    sb.AppendLine($"[Row {row:D2}] {strLine}");
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        public void RenderTextMode(byte[] vram, ushort crtcStartWord = 0)
         {
             if (vram == null || vram.Length < 0x18000 + (Columns * Rows * 2)) return;
 
-            int vramOffset = 0x18000; // 0xB8000 - 0xA0000 = 0x18000 offset in VRAM array
+            int vramOffset = 0x18000 + (crtcStartWord * 2);
+            if (vramOffset + (Columns * Rows * 2) > vram.Length) vramOffset = 0x18000;
 
             for (int row = 0; row < Rows; row++)
             {

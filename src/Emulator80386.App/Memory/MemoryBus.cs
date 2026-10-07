@@ -18,9 +18,18 @@ namespace Emulator80386.App.Memory
         public void LoadBiosRom(byte[] romData)
         {
             if (romData == null || romData.Length == 0) return;
-            int copyLength = Math.Min(romData.Length, BiosRom.Length);
-            int offset = BiosRom.Length - copyLength;
-            Array.Copy(romData, 0, BiosRom, offset, copyLength);
+            if (romData.Length == 64 * 1024)
+            {
+                // Mirror 64KB ROM across both 0xE0000-0xEFFFF and 0xF0000-0xFFFFF
+                Array.Copy(romData, 0, BiosRom, 0, 65536);
+                Array.Copy(romData, 0, BiosRom, 65536, 65536);
+            }
+            else
+            {
+                int copyLength = Math.Min(romData.Length, BiosRom.Length);
+                int offset = BiosRom.Length - copyLength;
+                Array.Copy(romData, 0, BiosRom, offset, copyLength);
+            }
         }
 
         public void LoadVgaOptionRom(byte[] romData)
@@ -70,7 +79,12 @@ namespace Emulator80386.App.Memory
             // RAM
             if (address < Ram.Length)
             {
-                return Ram[address];
+                byte val = Ram[address];
+                if (val == 0 && address < BiosRom.Length)
+                {
+                    return BiosRom[address];
+                }
+                return val;
             }
 
             return 0xFF;

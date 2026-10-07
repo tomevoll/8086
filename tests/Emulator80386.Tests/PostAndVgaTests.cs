@@ -1,5 +1,6 @@
 using Emulator80386.App;
 using Emulator80386.App.Config;
+using Emulator80386.App.CPU;
 using Emulator80386.App.IO;
 using Emulator80386.App.Memory;
 using Xunit;
@@ -18,6 +19,13 @@ namespace Emulator80386.Tests
 
             Assert.Equal(0x0E, vga.Read8(0x3D4));
             Assert.Equal(0x07, vga.Read8(0x3D5));
+
+            // Test Start Address Register (0x0C / 0x0D)
+            vga.Write8(0x3D4, 0x0C); vga.Write8(0x3D5, 0x01);
+            vga.Write8(0x3D4, 0x0D); vga.Write8(0x3D5, 0x40);
+
+            Assert.Equal(0x01, vga.CrtcRegs[0x0C]);
+            Assert.Equal(0x40, vga.CrtcRegs[0x0D]);
 
             // Test Input Status 1 vertical retrace toggle (port 0x3DA)
             byte status1 = vga.Read8(0x3DA);
@@ -67,6 +75,33 @@ namespace Emulator80386.Tests
 
             // Sum modulo 256 MUST be 0 for BIOS POST to execute Option ROM
             Assert.Equal(0, sum);
+        }
+
+        [Fact]
+        public void TestRepStoswScreenClearAndCrtc()
+        {
+            var memory = new MemoryBus(16);
+            var io = new IOPortBus();
+            var cpu = new Cpu386(memory, io);
+
+            cpu.Reg.CS.Selector = 0x0000; cpu.Reg.CS.Base = 0x00000;
+            cpu.Reg.AX = 0x0720; // Space character with light gray attribute
+            cpu.Reg.ES.Selector = 0xB800; cpu.Reg.ES.Base = 0xB8000;
+            cpu.Reg.DI = 0;
+            cpu.Reg.CX = 2000; // 80x25 text screen cells
+
+            // 0xF3 0xAB -> REP STOSW
+            memory.Write8(0x1000, 0xF3);
+            memory.Write8(0x1001, 0xAB);
+            cpu.Reg.EIP = 0x1000;
+
+            cpu.Step();
+
+            Assert.Equal((byte)' ', memory.Read8(0xB8000));
+            Assert.Equal(0x07, memory.Read8(0xB8001));
+            Assert.Equal((byte)' ', memory.Read8(0xB8F9E));
+            Assert.Equal(0x07, memory.Read8(0xB8F9F));
+            Assert.Equal(0, (int)cpu.Reg.CX);
         }
 
         [Fact]

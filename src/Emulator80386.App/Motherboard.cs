@@ -112,7 +112,9 @@ namespace Emulator80386.App
                 if (Cpu.Halted) break;
                 Cpu.Step();
             }
-            Vga.RenderTextMode(Memory.Vram);
+
+            ushort startWord = (ushort)((VgaIo.CrtcRegs[0x0C] << 8) | VgaIo.CrtcRegs[0x0D]);
+            Vga.RenderTextMode(Memory.Vram, startWord);
         }
     }
 }

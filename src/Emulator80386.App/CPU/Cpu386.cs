@@ -151,17 +151,17 @@ namespace Emulator80386.App.CPU
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
                         if (m.Reg == 2) // LGDT
                         {
-                            ushort limit = Memory.Read16(m.EA);
-                            uint baseAddr = Memory.Read32(m.EA + 2);
+                            Reg.GdtLimit = Memory.Read16(m.EA);
+                            Reg.GdtBase = Memory.Read32(m.EA + 2);
                         }
                         else if (m.Reg == 3) // LIDT
                         {
-                            ushort limit = Memory.Read16(m.EA);
-                            uint baseAddr = Memory.Read32(m.EA + 2);
+                            Reg.IdtLimit = Memory.Read16(m.EA);
+                            Reg.IdtBase = Memory.Read32(m.EA + 2);
                         }
                         else if (m.Reg == 4) // SMSW
                         {
-                            WriteRm16(m, (ushort)Reg.CR0);
+                            WriteRm16(m, (ushort)(Reg.CR0 | 0x0010)); // Bit 4 Extension Type (387) is always 1 on 80386
                         }
                         else if (m.Reg == 6) // LMSW
                         {
@@ -1721,16 +1721,14 @@ namespace Emulator80386.App.CPU
                         {
                             uint newEip = Fetch32();
                             ushort newCs = Fetch16();
-                            Reg.CS.Selector = newCs;
-                            Reg.CS.Base = Reg.ProtectedMode ? Reg.CS.Base : (uint)(newCs << 4);
+                            SetSegmentSelector(1, newCs);
                             Reg.EIP = newEip;
                         }
                         else
                         {
                             ushort newIp = Fetch16();
                             ushort newCs = Fetch16();
-                            Reg.CS.Selector = newCs;
-                            Reg.CS.Base = Reg.ProtectedMode ? Reg.CS.Base : (uint)(newCs << 4);
+                            SetSegmentSelector(1, newCs);
                             Reg.EIP = newIp;
                         }
                     }
@@ -2131,6 +2129,23 @@ namespace Emulator80386.App.CPU
             if (!Reg.ProtectedMode)
             {
                 seg.Base = (uint)(selector << 4);
+            }
+            else
+            {
+                uint descOffset = (uint)(selector & ~7u);
+                if (selector != 0 && Reg.GdtBase != 0 && descOffset + 7 <= Reg.GdtLimit)
+                {
+                    uint descAddr = Reg.GdtBase + descOffset;
+                    byte b2 = Memory.Read8(descAddr + 2);
+                    byte b3 = Memory.Read8(descAddr + 3);
+                    byte b4 = Memory.Read8(descAddr + 4);
+                    byte b7 = Memory.Read8(descAddr + 7);
+                    seg.Base = (uint)(b2 | (b3 << 8) | (b4 << 16) | (b7 << 24));
+                }
+                else
+                {
+                    seg.Base = 0;
+                }
             }
         }
 
