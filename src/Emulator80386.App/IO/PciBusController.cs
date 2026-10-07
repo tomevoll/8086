@@ -66,6 +66,8 @@ namespace Emulator80386.App.IO
             return 0xFFFFFFFF;
         }
 
+        public Memory.MemoryBus? Memory { get; set; }
+
         public void Write8(ushort port, byte value)
         {
             if (port >= 0x0CFC && port <= 0x0CFF)
@@ -77,7 +79,14 @@ namespace Emulator80386.App.IO
 
                 if (bus == 0 && fn == 0 && reg < 256)
                 {
-                    if (dev == 0) _dev0Config[reg] = value;
+                    if (dev == 0)
+                    {
+                        _dev0Config[reg] = value;
+                        if (reg >= 0x59 && reg <= 0x5F && Memory != null)
+                        {
+                            Memory.ShadowRamEnabled = true;
+                        }
+                    }
                     else if (dev == 1) _dev1Config[reg] = value;
                     else if (dev == 2) _dev2Config[reg] = value;
                 }

@@ -4,6 +4,7 @@ namespace Emulator80386.App.Memory
 {
     public class MemoryBus
     {
+        public bool ShadowRamEnabled { get; set; }
         public byte[] Ram { get; }
         public byte[] Vram { get; } = new byte[128 * 1024]; // 0xA0000 - 0xBFFFF (128 KB)
         public byte[] OptionRom { get; } = new byte[128 * 1024]; // 0xC0000 - 0xDFFFF (128 KB)
@@ -82,6 +83,7 @@ namespace Emulator80386.App.Memory
             // BIOS ROM (0xE0000 - 0xFFFFF)
             if (address >= 0xE0000 && address <= 0xFFFFF)
             {
+                if (ShadowRamEnabled) return Ram[address];
                 uint romOffset = address - 0xE0000;
                 return BiosRom[romOffset];
             }
@@ -110,14 +112,18 @@ namespace Emulator80386.App.Memory
                 return;
             }
 
-            // ROM areas (0xC0000 - 0xFFFFF & 0xFFFE0000+) are read-only
-            if ((address >= 0xC0000 && address <= 0xFFFFF) || address >= 0xFFFE0000)
+            // High reset vector mirror is read-only
+            if (address >= 0xFFFE0000)
             {
                 return;
             }
 
-            // System RAM
-            Ram[address % Ram.Length] = value;
+            // System RAM (including C0000-FFFFF shadow RAM space)
+            if (address < Ram.Length)
+            {
+                Ram[address] = value;
+                return;
+            }
         }
 
         public ushort Read16(uint address)

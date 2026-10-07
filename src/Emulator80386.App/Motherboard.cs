@@ -80,7 +80,7 @@ namespace Emulator80386.App
             for (ushort p = 0x80; p <= 0x8F; p++) IOPort.RegisterDevice(p, PostDma);
             for (ushort p = 0xC0; p <= 0xDE; p++) IOPort.RegisterDevice(p, PostDma);
 
-            PciBus = new PciBusController();
+            PciBus = new PciBusController { Memory = Memory };
             for (ushort p = 0x0CF8; p <= 0x0CFF; p++) IOPort.RegisterDevice(p, PciBus);
 
             Cpu = new Cpu386(Memory, IOPort);
