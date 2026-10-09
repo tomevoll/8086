@@ -26,6 +26,8 @@ namespace Emulator80386.App
         public VgaController VgaIo { get; }
         public PostAndDmaController PostDma { get; }
         public PciBusController PciBus { get; }
+        public DebugConsoleDevice DebugConsole { get; }
+
         public Motherboard(EmulatorConfig config)
         {
             Config = config ?? new EmulatorConfig();
@@ -81,6 +83,10 @@ namespace Emulator80386.App
 
             PciBus = new PciBusController { Memory = Memory };
             for (ushort p = 0x0CF8; p <= 0x0CFF; p++) IOPort.RegisterDevice(p, PciBus);
+
+            DebugConsole = new DebugConsoleDevice();
+            IOPort.RegisterDevice(0x0402, DebugConsole);
+            IOPort.RegisterDevice(0xE9, DebugConsole);
 
             Cpu = new Cpu386(Memory, IOPort);
 

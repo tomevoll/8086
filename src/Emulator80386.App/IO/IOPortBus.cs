@@ -7,6 +7,18 @@ namespace Emulator80386.App.IO
     {
         byte Read8(ushort port);
         void Write8(ushort port, byte value);
+        ushort Read16(ushort port) => (ushort)(Read8(port) | (Read8((ushort)(port + 1)) << 8));
+        void Write16(ushort port, ushort value)
+        {
+            Write8(port, (byte)(value & 0xFF));
+            Write8((ushort)(port + 1), (byte)((value >> 8) & 0xFF));
+        }
+        uint Read32(ushort port) => (uint)(Read16(port) | (Read16((ushort)(port + 2)) << 16));
+        void Write32(ushort port, uint value)
+        {
+            Write16(port, (ushort)(value & 0xFFFF));
+            Write16((ushort)(port + 2), (ushort)((value >> 16) & 0xFFFF));
+        }
     }
 
     public class IOPortBus
@@ -33,6 +45,8 @@ namespace Emulator80386.App.IO
 
         public ushort In16(ushort port)
         {
+            if (_devices.TryGetValue(port, out var device))
+                return device.Read16(port);
             byte b0 = In8(port);
             byte b1 = In8((ushort)(port + 1));
             return (ushort)(b0 | (b1 << 8));
@@ -40,12 +54,19 @@ namespace Emulator80386.App.IO
 
         public void Out16(ushort port, ushort value)
         {
-            Out8(port, (byte)(value & 0xFF));
-            Out8((ushort)(port + 1), (byte)((value >> 8) & 0xFF));
+            if (_devices.TryGetValue(port, out var device))
+                device.Write16(port, value);
+            else
+            {
+                Out8(port, (byte)(value & 0xFF));
+                Out8((ushort)(port + 1), (byte)((value >> 8) & 0xFF));
+            }
         }
 
         public uint In32(ushort port)
         {
+            if (_devices.TryGetValue(port, out var device))
+                return device.Read32(port);
             ushort w0 = In16(port);
             ushort w1 = In16((ushort)(port + 2));
             return (uint)(w0 | (w1 << 16));
@@ -53,8 +74,13 @@ namespace Emulator80386.App.IO
 
         public void Out32(ushort port, uint value)
         {
-            Out16(port, (ushort)(value & 0xFFFF));
-            Out16((ushort)(port + 2), (ushort)((value >> 16) & 0xFFFF));
+            if (_devices.TryGetValue(port, out var device))
+                device.Write32(port, value);
+            else
+            {
+                Out16(port, (ushort)(value & 0xFFFF));
+                Out16((ushort)(port + 2), (ushort)((value >> 16) & 0xFFFF));
+            }
         }
     }
 }

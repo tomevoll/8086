@@ -33,6 +33,12 @@ namespace Emulator80386.App.IO
 
         public byte Read8(ushort port)
         {
+            if (port >= 0x0CF8 && port <= 0x0CFB)
+            {
+                int shift = (port - 0x0CF8) * 8;
+                return (byte)((AddressRegister >> shift) & 0xFF);
+            }
+
             if (port >= 0x0CFC && port <= 0x0CFF)
             {
                 if ((AddressRegister & 0x80000000) == 0) return 0xFF;
@@ -78,6 +84,14 @@ namespace Emulator80386.App.IO
 
         public void Write8(ushort port, byte value)
         {
+            if (port >= 0x0CF8 && port <= 0x0CFB)
+            {
+                int shift = (port - 0x0CF8) * 8;
+                uint mask = ~(0xFFu << shift);
+                AddressRegister = (AddressRegister & mask) | ((uint)value << shift);
+                return;
+            }
+
             if (port >= 0x0CFC && port <= 0x0CFF)
             {
                 uint bus = (AddressRegister >> 16) & 0xFF;
@@ -92,10 +106,7 @@ namespace Emulator80386.App.IO
                         _dev0Config[reg] = value;
                         if (reg >= 0x59 && reg <= 0x5F && Memory != null)
                         {
-                            // PAM0 register (0x59) controls 0xF0000-0xFFFFF shadow RAM
-                            byte pam = value;
-                            Memory.BiosShadowRead = (pam & 0x10) != 0 || (pam & 0x01) != 0;
-                            Memory.BiosShadowWrite = (pam & 0x20) != 0 || (pam & 0x02) != 0;
+                            UpdatePamShadow(reg, value);
                         }
                     }
                     else if (dev == 1) _dev1Config[reg] = value;
@@ -122,6 +133,37 @@ namespace Emulator80386.App.IO
                 Write8(0x0CFD, (byte)((value >> 8) & 0xFF));
                 Write8(0x0CFE, (byte)((value >> 16) & 0xFF));
                 Write8(0x0CFF, (byte)((value >> 24) & 0xFF));
+            }
+        }
+
+        private void UpdatePamShadow(uint reg, byte value)
+        {
+            if (Memory == null) return;
+
+            if (reg == 0x59)
+            {
+                // PAM0: bits 5:4 control 0xF0000 - 0xFFFFF (segments 12..15), bits 1:0 control 0xE0000 - 0xEFFFF (segments 8..11)
+                bool r = (value & 0x10) != 0 || (value & 0x01) != 0;
+                bool w = (value & 0x20) != 0 || (value & 0x02) != 0;
+                for (int s = 8; s <= 15; s++)
+                {
+                    Memory.ShadowRead[s] = r;
+                    Memory.ShadowWrite[s] = w;
+                }
+            }
+            else if (reg >= 0x5A && reg <= 0x5F)
+            {
+                // PAM1..PAM6: control 0xC0000 - 0xEFFFF in pairs of 16KB segments
+                int baseSeg = (int)((reg - 0x5A) * 2);
+                bool r0 = (value & 0x01) != 0;
+                bool w0 = (value & 0x02) != 0;
+                bool r1 = (value & 0x10) != 0;
+                bool w1 = (value & 0x20) != 0;
+
+                Memory.ShadowRead[baseSeg] = r0;
+                Memory.ShadowWrite[baseSeg] = w0;
+                Memory.ShadowRead[baseSeg + 1] = r1;
+                Memory.ShadowWrite[baseSeg + 1] = w1;
             }
         }
     }

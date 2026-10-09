@@ -66,9 +66,9 @@ namespace Emulator80386.Tests
             Assert.Equal(0x55, memory.Read8(0xC0000));
             Assert.Equal(0xAA, memory.Read8(0xC0001));
 
-            // IDE Option ROM at 0xC8000 (0x55 0xAA magic header)
-            Assert.Equal(0x55, memory.Read8(0xC8000));
-            Assert.Equal(0xAA, memory.Read8(0xC8001));
+            // IDE Option ROM at 0xD0000 (0x55 0xAA magic header)
+            Assert.Equal(0x55, memory.Read8(0xD0000));
+            Assert.Equal(0xAA, memory.Read8(0xD0001));
         }
     }
 }

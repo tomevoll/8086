@@ -20,11 +20,7 @@ namespace Emulator80386.App.CPU
 
         public uint LinearAddress(SegmentRegister seg, uint offset)
         {
-            if (Reg.ProtectedMode)
-            {
-                return seg.Base + offset;
-            }
-            return (uint)((seg.Selector << 4) + offset);
+            return seg.Base + offset;
         }
 
         public byte Fetch8()
@@ -312,16 +308,17 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
-                // SHLD r/m, r, imm8 (0x0F 0xA4)
+                // SHLD r/m, r, imm8 (0x0F 0xA4) / SHLD r/m, r, CL (0x0F 0xA5)
                 case 0xA4:
+                case 0xA5:
                     {
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        byte cnt = (byte)(Fetch8() & 31);
+                        byte cnt = (byte)((subOpcode == 0xA4 ? Fetch8() : Reg.CL) & 31);
                         if (cnt > 0)
                         {
                             if (operandSize32)
                             {
-                                ulong val = (((ulong)ReadRm32(m)) << 32) + (ulong)Reg.GetGpr32(m.Reg);
+                                ulong val = (((ulong)ReadRm32(m)) << 32) | (ulong)Reg.GetGpr32(m.Reg);
                                 uint res = (uint)(val >> (32 - cnt));
                                 WriteRm32(m, res);
                             }
@@ -356,16 +353,17 @@ namespace Emulator80386.App.CPU
                     }
                     break;
 
-                // SHRD r/m, r, imm8 (0x0F 0xAC)
+                // SHRD r/m, r, imm8 (0x0F 0xAC) / SHRD r/m, r, CL (0x0F 0xAD)
                 case 0xAC:
+                case 0xAD:
                     {
                         ModRM m = DecodeModRM(addressSize32, defaultDs);
-                        byte cnt = (byte)(Fetch8() & 31);
+                        byte cnt = (byte)((subOpcode == 0xAC ? Fetch8() : Reg.CL) & 31);
                         if (cnt > 0)
                         {
                             if (operandSize32)
                             {
-                                ulong val = (((ulong)Reg.GetGpr32(m.Reg)) << 32) + (ulong)ReadRm32(m);
+                                ulong val = (((ulong)Reg.GetGpr32(m.Reg)) << 32) | (ulong)ReadRm32(m);
                                 uint res = (uint)(val >> cnt);
                                 WriteRm32(m, res);
                             }
@@ -550,6 +548,10 @@ namespace Emulator80386.App.CPU
                     break;
 
                 default:
+                    {
+                        uint lin = LinearAddress(Reg.CS, Reg.EIP - 1);
+                        Console.WriteLine($"[CPU WARNING] Unhandled 0x0F opcode 0x{subOpcode:X2} at CS:EIP={Reg.CS.Selector:X4}:{Reg.EIP - 1:X8} (Linear 0x{lin:X8})");
+                    }
                     break;
             }
         }
@@ -2043,7 +2045,10 @@ namespace Emulator80386.App.CPU
                     break;
 
                 default:
-                    // Unhandled opcode
+                    {
+                        uint lin = LinearAddress(Reg.CS, Reg.EIP - 1);
+                        Console.WriteLine($"[CPU WARNING] Unhandled opcode 0x{opcode:X2} at CS:EIP={Reg.CS.Selector:X4}:{Reg.EIP - 1:X8} (Linear 0x{lin:X8})");
+                    }
                     break;
             }
         }
@@ -2382,12 +2387,13 @@ namespace Emulator80386.App.CPU
             else
             {
                 uint offset;
+                int baseReg = -1;
                 if (rm == 4) // SIB byte
                 {
                     byte sib = Fetch8();
                     int scale = (sib >> 6) & 3;
                     int indexReg = (sib >> 3) & 7;
-                    int baseReg = sib & 7;
+                    baseReg = sib & 7;
 
                     uint baseVal = (baseReg == 5 && mod == 0) ? Fetch32() : Reg.GetGpr32(baseReg);
                     uint indexVal = (indexReg == 4) ? 0 : Reg.GetGpr32(indexReg);
@@ -2413,7 +2419,20 @@ namespace Emulator80386.App.CPU
                 if (mod == 1) offset = (uint)(offset + (sbyte)Fetch8());
                 else if (mod == 2) offset = (uint)(offset + (int)Fetch32());
 
-                return LinearAddress(defaultSeg, offset);
+                SegmentRegister seg = defaultSeg;
+                if (defaultSeg == Reg.DS)
+                {
+                    if (rm == 4)
+                    {
+                        if (baseReg == 4 || (baseReg == 5 && mod != 0)) seg = Reg.SS;
+                    }
+                    else if (rm == 5 && mod != 0)
+                    {
+                        seg = Reg.SS;
+                    }
+                }
+
+                return LinearAddress(seg, offset);
             }
         }
 

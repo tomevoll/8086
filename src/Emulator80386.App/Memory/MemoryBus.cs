@@ -6,6 +6,11 @@ namespace Emulator80386.App.Memory
     {
         public bool BiosShadowRead { get; set; }
         public bool BiosShadowWrite { get; set; }
+
+        // Per-16KB segment PAM shadow configuration for 0xC0000 - 0xFFFFF (16 segments of 16KB)
+        public bool[] ShadowRead { get; } = new bool[16];
+        public bool[] ShadowWrite { get; } = new bool[16];
+
         public byte[] Ram { get; }
         public byte[] Vram { get; } = new byte[128 * 1024]; // 0xA0000 - 0xBFFFF (128 KB)
         public byte[] OptionRom { get; } = new byte[128 * 1024]; // 0xC0000 - 0xDFFFF (128 KB)
@@ -15,6 +20,11 @@ namespace Emulator80386.App.Memory
         {
             int sizeInBytes = Math.Max(1, ramSizeMB) * 1024 * 1024;
             Ram = new byte[sizeInBytes];
+            for (int i = 0; i < 16; i++)
+            {
+                ShadowWrite[i] = false;
+                ShadowRead[i] = false;
+            }
         }
 
         public void LoadBiosRom(byte[] romData)
@@ -32,20 +42,25 @@ namespace Emulator80386.App.Memory
                 int offset = BiosRom.Length - copyLength;
                 Array.Copy(romData, 0, BiosRom, offset, copyLength);
             }
+
+            if (Ram.Length >= 0x100000)
+            {
+                Array.Copy(BiosRom, 0, Ram, 0xE0000, 128 * 1024);
+            }
         }
 
         public void LoadVgaOptionRom(byte[] romData)
         {
             if (romData == null || romData.Length == 0) return;
-            int copyLength = Math.Min(romData.Length, 32 * 1024); // Up to 32KB at 0xC0000
+            int copyLength = Math.Min(romData.Length, 64 * 1024); // Up to 64KB at 0xC0000
             Array.Copy(romData, 0, OptionRom, 0, copyLength);
         }
 
         public void LoadIdeOptionRom(byte[] romData)
         {
             if (romData == null || romData.Length == 0) return;
-            int copyLength = Math.Min(romData.Length, 16 * 1024); // Up to 16KB at 0xC8000
-            Array.Copy(romData, 0, OptionRom, 0x8000, copyLength);
+            int copyLength = Math.Min(romData.Length, 16 * 1024); // Up to 16KB at 0xD0000
+            Array.Copy(romData, 0, OptionRom, 0x10000, copyLength);
         }
 
         public byte Read8(uint address)
@@ -64,20 +79,28 @@ namespace Emulator80386.App.Memory
                 return Vram[vramOffset % Vram.Length];
             }
 
-            // Option ROMs (0xC0000 - 0xDFFFF)
-            if (address >= 0xC0000 && address <= 0xDFFFF)
+            // Option ROMs / BIOS ROM / Shadow RAM Area (0xC0000 - 0xFFFFF)
+            if (address >= 0xC0000 && address <= 0xFFFFF)
             {
-                if (BiosShadowRead && address < Ram.Length) return Ram[address];
-                uint optOffset = address - 0xC0000;
-                return OptionRom[optOffset % OptionRom.Length];
-            }
-
-            // BIOS ROM (0xE0000 - 0xFFFFF)
-            if (address >= 0xE0000 && address <= 0xFFFFF)
-            {
-                if (BiosShadowRead && address < Ram.Length) return Ram[address];
-                uint romOffset = address - 0xE0000;
-                return BiosRom[romOffset];
+                int seg = (int)((address - 0xC0000) / 0x4000);
+                if (address <= 0xDFFFF)
+                {
+                    if ((ShadowRead[seg] || BiosShadowRead) && address < Ram.Length)
+                    {
+                        return Ram[address];
+                    }
+                    uint optOffset = address - 0xC0000;
+                    return OptionRom[optOffset % OptionRom.Length];
+                }
+                else
+                {
+                    uint romOffset = address - 0xE0000;
+                    if ((ShadowRead[seg] || BiosShadowRead || (address < Ram.Length && Ram[address] != BiosRom[romOffset])) && address < Ram.Length)
+                    {
+                        return Ram[address];
+                    }
+                    return BiosRom[romOffset];
+                }
             }
 
             // RAM
@@ -99,20 +122,11 @@ namespace Emulator80386.App.Memory
                 return;
             }
 
-            // BIOS ROM / Shadow RAM Area (0xE0000 - 0xFFFFF)
-            if (address >= 0xE0000 && address <= 0xFFFFF)
+            // Option ROM Area / BIOS ROM / Shadow RAM Area (0xC0000 - 0xFFFFF)
+            if (address >= 0xC0000 && address <= 0xFFFFF)
             {
-                if (address < Ram.Length)
-                {
-                    Ram[address] = value;
-                }
-                return;
-            }
-
-            // Option ROM Area (0xC0000 - 0xDFFFF)
-            if (address >= 0xC0000 && address <= 0xDFFFF)
-            {
-                if (address < Ram.Length)
+                int seg = (int)((address - 0xC0000) / 0x4000);
+                if ((ShadowWrite[seg] || BiosShadowWrite) && address < Ram.Length)
                 {
                     Ram[address] = value;
                 }
