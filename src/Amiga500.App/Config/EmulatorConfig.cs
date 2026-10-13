@@ -13,9 +13,9 @@ public enum VideoStandard
 public class EmulatorConfig
 {
     public string KickstartRomPath { get; set; } = "roms/kick13.rom";
-    public int ChipRamKB { get; set; } = 512; // 512 KB standard
-    public int SlowRamKB { get; set; } = 0;   // e.g. 512 KB trapdoor expansion ($C00000)
-    public int FastRamKB { get; set; } = 0;   // e.g. 2MB / 8MB fast RAM
+    public int ChipRamKB { get; set; } = 512; // 512 KB standard Chip RAM
+    public int SlowRamKB { get; set; } = 512; // 512 KB standard Trapdoor Expansion ($C00000)
+    public int FastRamKB { get; set; } = 0;   // Fast RAM expansion
     public VideoStandard VideoStandard { get; set; } = VideoStandard.PAL;
     public string?[] FloppyPaths { get; set; } = new string?[4]; // DF0, DF1, DF2, DF3
     public float AudioVolume { get; set; } = 1.0f;
@@ -51,7 +51,7 @@ public class EmulatorConfig
         }
         catch
         {
-            // Ignore save errors if read-only filesystem
+            // Ignore save errors
         }
     }
 }

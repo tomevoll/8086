@@ -80,42 +80,41 @@ public class AmigaMemoryBus : IMemoryBus
         if (address >= 0x200000 && address < 0xA00000)
         {
             uint fastOffset = address - 0x200000;
-            if (FastRam != null && fastOffset < FastRam.Length)
+            if (FastRam != null && FastRam.Length > 0 && fastOffset < FastRam.Length)
             {
                 return FastRam[fastOffset];
             }
             return 0xFF;
         }
 
-        // $A00000 - $BFFFFF: CIA registers
-        if (address >= 0xA00000 && address < 0xC00000)
+        // CIA-A: $BFD000 - $BFDF00 (or $FFD000 via Absolute Short sign extension)
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) && (address & 0x00F000) == 0x00D000)
         {
-            // CIA-A: $BFD000 - $BFDF00
-            if ((address & 0x00F000) == 0x00D000 && CiaA != null)
-            {
-                return CiaA.ReadRegister(address);
-            }
-            // CIA-B: $BFE000 - $BFEF00 / $BF0000
-            if ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000)
-            {
-                if (CiaB != null) return CiaB.ReadRegister(address);
-            }
+            if (CiaA != null) return CiaA.ReadRegister(address);
             return 0xFF;
         }
 
-        // $C00000 - $CFFFFF: Slow / Trapdoor RAM
+        // CIA-B: $BFE000 / $BF0000 (or $FFE000 via Absolute Short sign extension)
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
+            ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000))
+        {
+            if (CiaB != null) return CiaB.ReadRegister(address);
+            return 0xFF;
+        }
+
+        // $C00000 - $CFFFFF: Slow / Trapdoor RAM ($C00000 - $C7FFFF, mirrored)
         if (address >= 0xC00000 && address < 0xD00000)
         {
-            uint slowOffset = address - 0xC00000;
-            if (SlowRam != null && slowOffset < SlowRam.Length)
+            if (SlowRam != null && SlowRam.Length > 0)
             {
+                uint slowOffset = (address - 0xC00000) % (uint)SlowRam.Length;
                 return SlowRam[slowOffset];
             }
             return 0xFF;
         }
 
-        // $DFF000 - $DFFFFF: Custom Chip Registers (mirrored every $200 bytes)
-        if (address >= 0xDFF000 && address < 0xE00000)
+        // $DFF000 - $DFFFFF or $FFF000 - $FFFFFF: Custom Chip Registers (mirrored every $200 bytes)
+        if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
             {
@@ -140,8 +139,8 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // High speed custom register word access
-        if (address >= 0xDFF000 && address < 0xE00000)
+        // Custom register word access
+        if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
             {
@@ -178,45 +177,45 @@ public class AmigaMemoryBus : IMemoryBus
         if (address >= 0x200000 && address < 0xA00000)
         {
             uint fastOffset = address - 0x200000;
-            if (FastRam != null && fastOffset < FastRam.Length)
+            if (FastRam != null && FastRam.Length > 0 && fastOffset < FastRam.Length)
             {
                 FastRam[fastOffset] = value;
             }
             return;
         }
 
-        // $A00000 - $BFFFFF: CIA registers
-        if (address >= 0xA00000 && address < 0xC00000)
+        // CIA-A: $BFD000 or $FFD000
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) && (address & 0x00F000) == 0x00D000)
         {
-            if ((address & 0x00F000) == 0x00D000 && CiaA != null)
-            {
-                CiaA.WriteRegister(address, value);
-            }
-            else if ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000)
-            {
-                if (CiaB != null) CiaB.WriteRegister(address, value);
-            }
+            if (CiaA != null) CiaA.WriteRegister(address, value);
+            return;
+        }
+
+        // CIA-B: $BFE000 / $BF0000 or $FFE000
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
+            ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000))
+        {
+            if (CiaB != null) CiaB.WriteRegister(address, value);
             return;
         }
 
         // $C00000 - $CFFFFF: Slow / Trapdoor RAM
         if (address >= 0xC00000 && address < 0xD00000)
         {
-            uint slowOffset = address - 0xC00000;
-            if (SlowRam != null && slowOffset < SlowRam.Length)
+            if (SlowRam != null && SlowRam.Length > 0)
             {
+                uint slowOffset = (address - 0xC00000) % (uint)SlowRam.Length;
                 SlowRam[slowOffset] = value;
             }
             return;
         }
 
-        // $DFF000 - $DFFFFF: Custom Chip Registers
-        if (address >= 0xDFF000 && address < 0xE00000)
+        // $DFF000 - $DFFFFF or $FFF000 - $FFFFFF: Custom Chip Registers
+        if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
             {
                 uint regOffset = address & 0x1FE;
-                // Byte writes to custom registers update low byte or high byte as word
                 ushort current = CustomRegisters.ReadRegister(regOffset);
                 ushort updated = (address & 1) == 0
                     ? (ushort)((value << 8) | (current & 0xFF))
@@ -232,7 +231,7 @@ public class AmigaMemoryBus : IMemoryBus
         uint address = rawAddress & 0xFFFFFF;
 
         // Custom register direct word write
-        if (address >= 0xDFF000 && address < 0xE00000)
+        if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
             {
