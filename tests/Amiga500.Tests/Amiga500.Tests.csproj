@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Emulator80386.App\Emulator80386.App.csproj" />
+    <ProjectReference Include="..\..\src\Amiga500.App\Amiga500.App.csproj" />
   </ItemGroup>
 
 </Project>
