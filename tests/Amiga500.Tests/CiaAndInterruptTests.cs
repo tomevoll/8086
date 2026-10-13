@@ -30,13 +30,13 @@ public class CiaAndInterruptTests
     public void Cia_OverlayToggle_TriggersCallback()
     {
         var ciaA = new Cia8520("CIA-A");
-        bool overlayState = true;
-        ciaA.OnOverlayChanged = (ovl) => overlayState = ovl;
+        byte portA = 0xFF;
+        ciaA.OnPortAChanged = (pra) => portA = pra;
 
         ciaA.DDRA = 0x01; // Set PRA bit 0 as output
         ciaA.WriteRegister(0x0000, 0x00); // Clear OVL bit
 
-        Assert.False(overlayState);
+        Assert.Equal(0xFE, portA & 0xFF);
     }
 
     [Fact]

@@ -48,7 +48,7 @@ public class AmigaSystem : ICustomRegisterDevice
         Memory.CiaB = CiaB;
         Memory.CustomRegisters = this;
 
-        CiaA.OnOverlayChanged = (ovl) => Memory.OverlayEnabled = ovl;
+        CiaA.OnPortAChanged = (pra) => Memory.UpdateOverlayFromCiaAPortA(pra);
 
         // Load configured ADF files into drives
         for (int i = 0; i < 4; i++)

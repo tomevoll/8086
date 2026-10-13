@@ -50,9 +50,12 @@ public class MemoryTests
         var bus = new AmigaMemoryBus(config, rom);
         var ciaA = new Cia8520("CIA-A");
         bus.CiaA = ciaA;
-        ciaA.OnOverlayChanged = (ovl) => bus.OverlayEnabled = ovl;
+        ciaA.OnPortAChanged = (pra) => bus.UpdateOverlayFromCiaAPortA(pra);
 
         Assert.True(bus.OverlayEnabled);
+
+        // Kickstart sets DDRA bit 0 to output
+        ciaA.DDRA = 0x01;
 
         // Kickstart writes 0x00 to $BFE001 (CIA-A PRA)
         bus.WriteByte(0xBFE001, 0x00);

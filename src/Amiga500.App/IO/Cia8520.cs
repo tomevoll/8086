@@ -32,14 +32,14 @@ public class Cia8520 : ICiaDevice
     public byte ICRData { get; set; } = 0x00; // Interrupt Pending Data
     public bool InterruptSignaled { get; set; }
 
-    public Action<bool>? OnOverlayChanged { get; set; }
+    public Action<byte>? OnPortAChanged { get; set; }
 
     public Cia8520(string name)
     {
         Name = name;
         if (Name == "CIA-A")
         {
-            OutputLatchA = 0x01; // Bit 0 = OVL = 1 (Kickstart ROM overlay enabled)
+            OutputLatchA = 0x01; // Bit 0 = OVL = 1
         }
     }
 
@@ -119,15 +119,10 @@ public class Cia8520 : ICiaDevice
         switch (reg)
         {
             case 0x0:
-                bool oldOvlA = (OutputLatchA & 1) != 0;
                 OutputLatchA = value;
                 if (Name == "CIA-A")
                 {
-                    bool newOvlA = (OutputLatchA & 1) != 0;
-                    if (oldOvlA != newOvlA)
-                    {
-                        OnOverlayChanged?.Invoke(newOvlA);
-                    }
+                    OnPortAChanged?.Invoke(PRA);
                 }
                 break;
             case 0x1: OutputLatchB = value; break;
@@ -135,8 +130,7 @@ public class Cia8520 : ICiaDevice
                 DDRA = value;
                 if (Name == "CIA-A")
                 {
-                    bool ovl = (OutputLatchA & 1) != 0;
-                    OnOverlayChanged?.Invoke(ovl);
+                    OnPortAChanged?.Invoke(PRA);
                 }
                 break;
             case 0x3: DDRB = value; break;
