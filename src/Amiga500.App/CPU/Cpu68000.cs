@@ -293,18 +293,20 @@ public class Cpu68000
             int size = GetSizeFromOpcode(opcode);
             int mode = (opcode >> 3) & 7;
             int reg = opcode & 7;
-            uint src = ReadEa(mode, reg, size);
+            uint addr = ResolveEaAddress(mode, reg, size);
+            uint src = ReadEaAddress(mode, reg, size, addr);
             uint res = SubWithFlags(0, src, size);
-            WriteEa(mode, reg, size, res);
+            WriteEaAddress(mode, reg, size, addr, res);
             return 6;
         }
         if ((opcode & 0xFF00) == 0x4600) { // NOT
             int size = GetSizeFromOpcode(opcode);
             int mode = (opcode >> 3) & 7;
             int reg = opcode & 7;
-            uint src = ReadEa(mode, reg, size);
+            uint addr = ResolveEaAddress(mode, reg, size);
+            uint src = ReadEaAddress(mode, reg, size, addr);
             uint res = ~src;
-            WriteEa(mode, reg, size, res);
+            WriteEaAddress(mode, reg, size, addr, res);
             SetNzFlags(res, size);
             V = false; C = false;
             return 6;
@@ -422,9 +424,10 @@ public class Cpu68000
                 return 8;
             }
 
-            uint src = ReadEa(mode, reg, size);
+            uint addr = ResolveEaAddress(mode, reg, size);
+            uint src = ReadEaAddress(mode, reg, size, addr);
             uint res = isSub ? SubWithFlags(src, val, size) : AddWithFlags(src, val, size);
-            WriteEa(mode, reg, size, res);
+            WriteEaAddress(mode, reg, size, addr, res);
             return 8;
         }
     }
@@ -489,13 +492,14 @@ public class Cpu68000
         }
 
         int size = GetSizeFromOpMode(opmode);
-        uint srcVal = ReadEa(mode, eaReg, size);
+        uint addr = ResolveEaAddress(mode, eaReg, size);
+        uint srcVal = ReadEaAddress(mode, eaReg, size, addr);
         if ((opmode & 4) == 0) {
             D[reg] = ApplyBitwiseOr(D[reg], srcVal, size);
             SetNzFlags(D[reg], size);
         } else {
             uint res = ApplyBitwiseOr(srcVal, D[reg], size);
-            WriteEa(mode, eaReg, size, res);
+            WriteEaAddress(mode, eaReg, size, addr, res);
             SetNzFlags(res, size);
         }
         V = false; C = false;
@@ -518,12 +522,13 @@ public class Cpu68000
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
-        uint srcVal = ReadEa(mode, eaReg, sizeVal);
+        uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
+        uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
         if ((opmode & 4) == 0) {
             D[reg] = SubWithFlags(D[reg], srcVal, sizeVal);
         } else {
             uint res = SubWithFlags(srcVal, D[reg], sizeVal);
-            WriteEa(mode, eaReg, sizeVal, res);
+            WriteEaAddress(mode, eaReg, sizeVal, addr, res);
         }
         return 4;
     }
@@ -539,18 +544,18 @@ public class Cpu68000
             int size = opmode == 3 ? 2 : 4;
             uint src = ReadEa(mode, eaReg, size);
             if (size == 2) src = (uint)(short)src;
-            SubWithFlags(A[reg], src, 4);
+            SubWithFlags(A[reg], src, 4, updateX: false);
             return 6;
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
+        uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
+        uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
         if ((opmode & 4) == 0) {
-            uint srcVal = ReadEa(mode, eaReg, sizeVal);
-            SubWithFlags(D[reg], srcVal, sizeVal);
+            SubWithFlags(D[reg], srcVal, sizeVal, updateX: false);
         } else {
-            uint srcVal = ReadEa(mode, eaReg, sizeVal);
             uint res = ApplyBitwiseEor(srcVal, D[reg], sizeVal);
-            WriteEa(mode, eaReg, sizeVal, res);
+            WriteEaAddress(mode, eaReg, sizeVal, addr, res);
             SetNzFlags(res, sizeVal);
             V = false; C = false;
         }
@@ -589,13 +594,14 @@ public class Cpu68000
         }
 
         int size = GetSizeFromOpMode(opmode);
-        uint srcVal = ReadEa(mode, eaReg, size);
+        uint addr = ResolveEaAddress(mode, eaReg, size);
+        uint srcVal = ReadEaAddress(mode, eaReg, size, addr);
         if ((opmode & 4) == 0) {
             D[reg] = ApplyBitwiseAnd(D[reg], srcVal, size);
             SetNzFlags(D[reg], size);
         } else {
             uint res = ApplyBitwiseAnd(srcVal, D[reg], size);
-            WriteEa(mode, eaReg, size, res);
+            WriteEaAddress(mode, eaReg, size, addr, res);
             SetNzFlags(res, size);
         }
         V = false; C = false;
@@ -618,12 +624,13 @@ public class Cpu68000
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
-        uint srcVal = ReadEa(mode, eaReg, sizeVal);
+        uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
+        uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
         if ((opmode & 4) == 0) {
             D[reg] = AddWithFlags(D[reg], srcVal, sizeVal);
         } else {
             uint res = AddWithFlags(srcVal, D[reg], sizeVal);
-            WriteEa(mode, eaReg, sizeVal, res);
+            WriteEaAddress(mode, eaReg, sizeVal, addr, res);
         }
         return 4;
     }
@@ -640,9 +647,10 @@ public class Cpu68000
             return 20;
         }
 
-        uint dst = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint dst = ReadEaAddress(mode, reg, size, addr);
         uint res = dst & imm;
-        WriteEa(mode, reg, size, res);
+        WriteEaAddress(mode, reg, size, addr, res);
         SetNzFlags(res, size);
         V = false; C = false;
         return 8;
@@ -655,9 +663,10 @@ public class Cpu68000
         int reg = opcode & 7;
         uint imm = size switch { 1 => FetchWord() & 0xFFu, 2 => FetchWord(), 4 => FetchLong(), _ => 0 };
 
-        uint dst = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint dst = ReadEaAddress(mode, reg, size, addr);
         uint res = dst | imm;
-        WriteEa(mode, reg, size, res);
+        WriteEaAddress(mode, reg, size, addr, res);
         SetNzFlags(res, size);
         V = false; C = false;
         return 8;
@@ -670,9 +679,10 @@ public class Cpu68000
         int reg = opcode & 7;
         uint imm = size switch { 1 => FetchWord() & 0xFFu, 2 => FetchWord(), 4 => FetchLong(), _ => 0 };
 
-        uint dst = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint dst = ReadEaAddress(mode, reg, size, addr);
         uint res = dst ^ imm;
-        WriteEa(mode, reg, size, res);
+        WriteEaAddress(mode, reg, size, addr, res);
         SetNzFlags(res, size);
         V = false; C = false;
         return 8;
@@ -686,7 +696,7 @@ public class Cpu68000
         uint imm = size switch { 1 => FetchWord() & 0xFFu, 2 => FetchWord(), 4 => FetchLong(), _ => 0 };
 
         uint dst = ReadEa(mode, reg, size);
-        SubWithFlags(dst, imm, size);
+        SubWithFlags(dst, imm, size, updateX: false);
         return 8;
     }
 
@@ -697,9 +707,10 @@ public class Cpu68000
         int reg = opcode & 7;
         uint imm = size switch { 1 => FetchWord() & 0xFFu, 2 => FetchWord(), 4 => FetchLong(), _ => 0 };
 
-        uint dst = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint dst = ReadEaAddress(mode, reg, size, addr);
         uint res = AddWithFlags(dst, imm, size);
-        WriteEa(mode, reg, size, res);
+        WriteEaAddress(mode, reg, size, addr, res);
         return 8;
     }
 
@@ -710,9 +721,10 @@ public class Cpu68000
         int reg = opcode & 7;
         uint imm = size switch { 1 => FetchWord() & 0xFFu, 2 => FetchWord(), 4 => FetchLong(), _ => 0 };
 
-        uint dst = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint dst = ReadEaAddress(mode, reg, size, addr);
         uint res = SubWithFlags(dst, imm, size);
-        WriteEa(mode, reg, size, res);
+        WriteEaAddress(mode, reg, size, addr, res);
         return 8;
     }
 
@@ -727,7 +739,8 @@ public class Cpu68000
         int size = (mode == 0) ? 4 : 1;
         if (mode != 0) bitNum &= 7;
 
-        uint val = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint val = ReadEaAddress(mode, reg, size, addr);
         bool bitState = (val & (1u << (int)bitNum)) != 0;
         Z = !bitState;
 
@@ -735,7 +748,7 @@ public class Cpu68000
         else if (op == 2) val &= ~(1u << (int)bitNum);
         else if (op == 3) val |= (1u << (int)bitNum);
 
-        if (op != 0) WriteEa(mode, reg, size, val);
+        if (op != 0) WriteEaAddress(mode, reg, size, addr, val);
         return 8;
     }
 
@@ -747,7 +760,7 @@ public class Cpu68000
         ushort mask = FetchWord();
         uint addr = GetEaAddress(mode, reg);
 
-        if (mode == 4) { // Pre-decrement -(An) reverses bit mask order
+        if (mode == 4) {
             for (int i = 0; i < 16; i++) {
                 if ((mask & (1 << i)) != 0) {
                     addr -= (uint)size;
@@ -803,7 +816,8 @@ public class Cpu68000
         uint count = ir ? (D[(opcode >> 9) & 7] & 63) : (uint)((opcode >> 9) & 7);
         if (!ir && count == 0) count = 8;
 
-        uint val = ReadEa(mode, reg, size);
+        uint addr = ResolveEaAddress(mode, reg, size);
+        uint val = ReadEaAddress(mode, reg, size, addr);
 
         if (dr) {
             for (uint i = 0; i < count; i++) {
@@ -827,7 +841,7 @@ public class Cpu68000
         }
 
         val = MaskToSize(val, size);
-        WriteEa(mode, reg, size, val);
+        WriteEaAddress(mode, reg, size, addr, val);
         SetNzFlags(val, size);
         V = false;
         return 6;
@@ -854,54 +868,11 @@ public class Cpu68000
         _ => false
     };
 
-    private uint ReadEa(int mode, int reg, int size) => mode switch
-    {
-        0 => MaskToSize(D[reg], size),
-        1 => MaskToSize(A[reg], size),
-        2 => ReadMemory(A[reg], size),
-        3 => ReadMemoryPostInc(reg, size),
-        4 => ReadMemoryPreDec(reg, size),
-        5 => ReadMemory(A[reg] + (uint)(short)FetchWord(), size),
-        6 => ReadMemoryIndex(A[reg], size),
-        7 => reg switch
-        {
-            0 => ReadMemory((uint)(short)FetchWord(), size),
-            1 => ReadMemory(FetchLong(), size),
-            2 => ReadMemory((uint)(PC + (short)FetchWord()), size),
-            3 => ReadMemoryIndex(PC, size),
-            4 => FetchImmediate(size),
-            _ => 0
-        },
-        _ => 0
-    };
-
-    private void WriteEa(int mode, int reg, int size, uint value)
-    {
-        switch (mode)
-        {
-            case 0: D[reg] = SetBitRange(D[reg], value, size); break;
-            case 1: A[reg] = (size == 2) ? (uint)(short)value : value; break;
-            case 2: WriteMemory(A[reg], value, size); break;
-            case 3: WriteMemoryPostInc(reg, value, size); break;
-            case 4: WriteMemoryPreDec(reg, value, size); break;
-            case 5: WriteMemory(A[reg] + (uint)(short)FetchWord(), value, size); break;
-            case 6: WriteMemoryIndex(A[reg], value, size); break;
-            case 7:
-                switch (reg)
-                {
-                    case 0: WriteMemory((uint)(short)FetchWord(), value, size); break;
-                    case 1: WriteMemory(FetchLong(), value, size); break;
-                    default: break;
-                }
-                break;
-        }
-    }
-
-    private uint GetEaAddress(int mode, int reg) => mode switch
+    private uint ResolveEaAddress(int mode, int reg, int size) => mode switch
     {
         2 => A[reg],
-        3 => A[reg],
-        4 => A[reg],
+        3 => PostIncAddr(reg, size),
+        4 => PreDecAddr(reg, size),
         5 => A[reg] + (uint)(short)FetchWord(),
         6 => GetIndexAddress(A[reg]),
         7 => reg switch
@@ -914,6 +885,56 @@ public class Cpu68000
         },
         _ => 0
     };
+
+    private uint PostIncAddr(int reg, int size)
+    {
+        uint addr = A[reg];
+        A[reg] += (uint)(reg == 7 && size == 1 ? 2 : size);
+        return addr;
+    }
+
+    private uint PreDecAddr(int reg, int size)
+    {
+        A[reg] -= (uint)(reg == 7 && size == 1 ? 2 : size);
+        return A[reg];
+    }
+
+    private uint ReadEa(int mode, int reg, int size)
+    {
+        if (mode == 0) return MaskToSize(D[reg], size);
+        if (mode == 1) return MaskToSize(A[reg], size);
+        if (mode == 7 && reg == 4) return FetchImmediate(size);
+
+        uint addr = ResolveEaAddress(mode, reg, size);
+        return ReadMemory(addr, size);
+    }
+
+    private uint ReadEaAddress(int mode, int reg, int size, uint addr)
+    {
+        if (mode == 0) return MaskToSize(D[reg], size);
+        if (mode == 1) return MaskToSize(A[reg], size);
+        if (mode == 7 && reg == 4) return FetchImmediate(size);
+
+        return ReadMemory(addr, size);
+    }
+
+    private void WriteEa(int mode, int reg, int size, uint value)
+    {
+        if (mode == 0) { D[reg] = SetBitRange(D[reg], value, size); return; }
+        if (mode == 1) { A[reg] = (size == 2) ? (uint)(short)value : value; return; }
+
+        uint addr = ResolveEaAddress(mode, reg, size);
+        WriteMemory(addr, value, size);
+    }
+
+    private void WriteEaAddress(int mode, int reg, int size, uint addr, uint value)
+    {
+        if (mode == 0) D[reg] = SetBitRange(D[reg], value, size);
+        else if (mode == 1) A[reg] = (size == 2) ? (uint)(short)value : value;
+        else WriteMemory(addr, value, size);
+    }
+
+    private uint GetEaAddress(int mode, int reg) => ResolveEaAddress(mode, reg, 4);
 
     private uint GetIndexAddress(uint baseAddr)
     {
@@ -947,43 +968,6 @@ public class Cpu68000
         }
     }
 
-    private uint ReadMemoryPostInc(int reg, int size)
-    {
-        uint val = ReadMemory(A[reg], size);
-        A[reg] += (uint)(reg == 7 && size == 1 ? 2 : size);
-        return val;
-    }
-
-    private uint ReadMemoryPreDec(int reg, int size)
-    {
-        A[reg] -= (uint)(reg == 7 && size == 1 ? 2 : size);
-        return ReadMemory(A[reg], size);
-    }
-
-    private void WriteMemoryPostInc(int reg, uint val, int size)
-    {
-        WriteMemory(A[reg], val, size);
-        A[reg] += (uint)(reg == 7 && size == 1 ? 2 : size);
-    }
-
-    private void WriteMemoryPreDec(int reg, uint val, int size)
-    {
-        A[reg] -= (uint)(reg == 7 && size == 1 ? 2 : size);
-        WriteMemory(A[reg], val, size);
-    }
-
-    private uint ReadMemoryIndex(uint baseAddr, int size)
-    {
-        uint addr = GetIndexAddress(baseAddr);
-        return ReadMemory(addr, size);
-    }
-
-    private void WriteMemoryIndex(uint baseAddr, uint val, int size)
-    {
-        uint addr = GetIndexAddress(baseAddr);
-        WriteMemory(addr, val, size);
-    }
-
     private uint FetchImmediate(int size) => size switch
     {
         1 => FetchWord() & 0xFFu,
@@ -1011,7 +995,7 @@ public class Cpu68000
         return res;
     }
 
-    private uint SubWithFlags(uint a, uint b, int size)
+    private uint SubWithFlags(uint a, uint b, int size, bool updateX = true)
     {
         uint mask = GetMask(size);
         a &= mask;
@@ -1026,7 +1010,7 @@ public class Cpu68000
         SetNzFlags(res, size);
         V = overflow;
         C = borrow;
-        X = borrow;
+        if (updateX) X = borrow;
         return res;
     }
 

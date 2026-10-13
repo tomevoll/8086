@@ -95,6 +95,27 @@ public class Cpu68000Tests
     }
 
     [Fact]
+    public void Execute_AddWithDisplacement_FetchesExtensionWordOnce()
+    {
+        _mem.WriteLong(0, 0x80000);
+        _mem.WriteLong(4, 0x1000);
+        _cpu.Reset();
+
+        // ADD.W D0, (10, A0) -> $D168 000A
+        _mem.WriteWord(0x1000, 0xD168);
+        _mem.WriteWord(0x1002, 0x000A);
+
+        _cpu.A[0] = 0x2000;
+        _mem.WriteWord(0x200A, 5);
+        _cpu.D[0] = 10;
+
+        _cpu.ExecuteInstruction();
+
+        Assert.Equal(15, _mem.ReadWord(0x200A));
+        Assert.Equal(0x1004u, _cpu.PC); // PC advanced by exactly 4 bytes (opcode + displacement)
+    }
+
+    [Fact]
     public void Execute_JsrAndRts()
     {
         _mem.WriteLong(0, 0x80000);
