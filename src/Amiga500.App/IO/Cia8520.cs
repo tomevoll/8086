@@ -12,8 +12,26 @@ public class Cia8520 : ICiaDevice
     public byte DDRA { get; set; } = 0x00; // Direction A
     public byte DDRB { get; set; } = 0x00; // Direction B
 
-    public byte PRA => (byte)((OutputLatchA & DDRA) | (~DDRA & 0xFF));
-    public byte PRB => (byte)((OutputLatchB & DDRB) | (~DDRB & 0xFF));
+    public Func<byte>? GetExternalPraInputs { get; set; }
+    public Func<byte>? GetExternalPrbInputs { get; set; }
+
+    public byte PRA
+    {
+        get
+        {
+            byte ext = GetExternalPraInputs?.Invoke() ?? 0xFF;
+            return (byte)((OutputLatchA & DDRA) | (ext & ~DDRA));
+        }
+    }
+
+    public byte PRB
+    {
+        get
+        {
+            byte ext = GetExternalPrbInputs?.Invoke() ?? 0xFF;
+            return (byte)((OutputLatchB & DDRB) | (ext & ~DDRB));
+        }
+    }
 
     // Timer A
     public ushort LatchA { get; set; } = 0xFFFF;
@@ -33,6 +51,7 @@ public class Cia8520 : ICiaDevice
     public bool InterruptSignaled { get; set; }
 
     public Action<byte>? OnPortAChanged { get; set; }
+    public Action<byte>? OnPortBChanged { get; set; }
 
     public Cia8520(string name)
     {
@@ -125,7 +144,13 @@ public class Cia8520 : ICiaDevice
                     OnPortAChanged?.Invoke(PRA);
                 }
                 break;
-            case 0x1: OutputLatchB = value; break;
+            case 0x1:
+                OutputLatchB = value;
+                if (Name == "CIA-B")
+                {
+                    OnPortBChanged?.Invoke(PRB);
+                }
+                break;
             case 0x2:
                 DDRA = value;
                 if (Name == "CIA-A")
@@ -133,7 +158,13 @@ public class Cia8520 : ICiaDevice
                     OnPortAChanged?.Invoke(PRA);
                 }
                 break;
-            case 0x3: DDRB = value; break;
+            case 0x3:
+                DDRB = value;
+                if (Name == "CIA-B")
+                {
+                    OnPortBChanged?.Invoke(PRB);
+                }
+                break;
             case 0x4: LatchA = (ushort)((LatchA & 0xFF00) | value); break;
             case 0x5:
                 LatchA = (ushort)((LatchA & 0x00FF) | (value << 8));

@@ -49,6 +49,26 @@ public class AmigaSystem : ICustomRegisterDevice
         Memory.CustomRegisters = this;
 
         CiaA.OnPortAChanged = (pra) => Memory.UpdateOverlayFromCiaAPortA(pra);
+        CiaB.OnPortBChanged = (prb) => Floppy.UpdateControlSignals(prb, CiaA.PRA);
+
+        // Supply CIA-A PRA external hardware inputs (Floppy status signals)
+        CiaA.GetExternalPraInputs = () =>
+        {
+            byte inputs = 0xFF;
+            var drive = Floppy.ActiveDrive;
+            if (drive != null)
+            {
+                // Bit 2: /DKRDY (0 = ready/inserted)
+                if (drive.Disk != null) inputs = (byte)(inputs & ~0x04);
+                // Bit 3: /TK0 (0 = head at track 0)
+                if (drive.CurrentCylinder == 0) inputs = (byte)(inputs & ~0x08);
+                // Bit 4: /WPROT (0 = write-protected)
+                if (drive.Disk != null && drive.Disk.WriteProtected) inputs = (byte)(inputs & ~0x10);
+                // Bit 5: /CHANGE (0 = disk change latch set)
+                if (drive.DiskChanged) inputs = (byte)(inputs & ~0x20);
+            }
+            return inputs;
+        };
 
         // Load configured ADF files into drives
         for (int i = 0; i < 4; i++)
