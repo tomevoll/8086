@@ -60,16 +60,18 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // $000000 - $1FFFFF: Chip RAM / Overlay ROM
+        // $000000 - $1FFFFF: Chip RAM / Overlay ROM (mirrored up to 2MB)
         if (address < 0x200000)
         {
-            if (OverlayEnabled && address < KickstartRom.Length)
+            if (OverlayEnabled && KickstartRom.Length > 0)
             {
-                return KickstartRom[address];
+                uint romOffset = address % (uint)KickstartRom.Length;
+                return KickstartRom[romOffset];
             }
-            if (address < ChipRam.Length)
+            if (ChipRam.Length > 0)
             {
-                return ChipRam[address];
+                uint chipOffset = address % (uint)ChipRam.Length;
+                return ChipRam[chipOffset];
             }
             return 0xFF;
         }
@@ -112,7 +114,7 @@ public class AmigaMemoryBus : IMemoryBus
             return 0xFF;
         }
 
-        // $DFF000 - $DFFFFF: Custom Chip Registers
+        // $DFF000 - $DFFFFF: Custom Chip Registers (mirrored every $200 bytes)
         if (address >= 0xDFF000 && address < 0xE00000)
         {
             if (CustomRegisters != null)
@@ -125,14 +127,10 @@ public class AmigaMemoryBus : IMemoryBus
         }
 
         // $F80000 - $FFFFFF: Kickstart ROM
-        if (address >= 0xF80000)
+        if (address >= 0xF80000 && KickstartRom.Length > 0)
         {
-            uint romOffset = address - 0xF80000;
-            if (romOffset < KickstartRom.Length)
-            {
-                return KickstartRom[romOffset];
-            }
-            return 0xFF;
+            uint romOffset = (address - 0xF80000) % (uint)KickstartRom.Length;
+            return KickstartRom[romOffset];
         }
 
         return 0xFF;
@@ -165,12 +163,13 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // $000000 - $1FFFFF: Chip RAM
+        // $000000 - $1FFFFF: Chip RAM (mirrored up to 2MB)
         if (address < 0x200000)
         {
-            if (address < ChipRam.Length)
+            if (ChipRam.Length > 0)
             {
-                ChipRam[address] = value;
+                uint chipOffset = address % (uint)ChipRam.Length;
+                ChipRam[chipOffset] = value;
             }
             return;
         }
