@@ -42,6 +42,29 @@ public class MemoryTests
     }
 
     [Fact]
+    public void Kickstart13_DisablesOverlay_WhenWritingCiaAPra()
+    {
+        var config = new EmulatorConfig { ChipRamKB = 512 };
+        byte[] rom = new byte[256 * 1024];
+        rom[0] = 0x00; rom[1] = 0x08; rom[2] = 0x00; rom[3] = 0x00;
+        var bus = new AmigaMemoryBus(config, rom);
+        var ciaA = new Cia8520("CIA-A");
+        bus.CiaA = ciaA;
+        ciaA.OnOverlayChanged = (ovl) => bus.OverlayEnabled = ovl;
+
+        Assert.True(bus.OverlayEnabled);
+
+        // Kickstart writes 0x00 to $BFD000
+        bus.WriteByte(0xBFD000, 0x00);
+
+        Assert.False(bus.OverlayEnabled);
+
+        // Write test pattern to $000000
+        bus.WriteWord(0x000000, 0x5555);
+        Assert.Equal(0x5555, bus.ReadWord(0x000000));
+    }
+
+    [Fact]
     public void MemoryBus_Kickstart256K_MirrorsIn512KRange()
     {
         var config = new EmulatorConfig();

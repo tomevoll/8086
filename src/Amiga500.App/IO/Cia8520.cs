@@ -6,10 +6,14 @@ public class Cia8520 : ICiaDevice
 {
     public string Name { get; }
 
-    public byte PRA { get; set; } = 0xFF; // Port A Data
-    public byte PRB { get; set; } = 0xFF; // Port B Data
+    public byte OutputLatchA { get; set; } = 0xFF;
+    public byte OutputLatchB { get; set; } = 0xFF;
+
     public byte DDRA { get; set; } = 0x00; // Direction A
     public byte DDRB { get; set; } = 0x00; // Direction B
+
+    public byte PRA => (byte)((OutputLatchA & DDRA) | (~DDRA & 0xFF));
+    public byte PRB => (byte)((OutputLatchB & DDRB) | (~DDRB & 0xFF));
 
     // Timer A
     public ushort LatchA { get; set; } = 0xFFFF;
@@ -35,7 +39,7 @@ public class Cia8520 : ICiaDevice
         Name = name;
         if (Name == "CIA-A")
         {
-            PRA = 0x01; // Bit 0 = OVL = 1 (Kickstart ROM overlay enabled)
+            OutputLatchA = 0x01; // Bit 0 = OVL = 1 (Kickstart ROM overlay enabled)
         }
     }
 
@@ -115,20 +119,26 @@ public class Cia8520 : ICiaDevice
         switch (reg)
         {
             case 0x0:
-                byte oldPra = PRA;
-                PRA = (byte)((PRA & ~DDRA) | (value & DDRA));
+                bool oldOvlA = (OutputLatchA & 1) != 0;
+                OutputLatchA = value;
                 if (Name == "CIA-A")
                 {
-                    bool oldOvl = (oldPra & 1) != 0;
-                    bool newOvl = (PRA & 1) != 0;
-                    if (oldOvl != newOvl)
+                    bool newOvlA = (OutputLatchA & 1) != 0;
+                    if (oldOvlA != newOvlA)
                     {
-                        OnOverlayChanged?.Invoke(newOvl);
+                        OnOverlayChanged?.Invoke(newOvlA);
                     }
                 }
                 break;
-            case 0x1: PRB = (byte)((PRB & ~DDRB) | (value & DDRB)); break;
-            case 0x2: DDRA = value; break;
+            case 0x1: OutputLatchB = value; break;
+            case 0x2:
+                DDRA = value;
+                if (Name == "CIA-A")
+                {
+                    bool ovl = (OutputLatchA & 1) != 0;
+                    OnOverlayChanged?.Invoke(ovl);
+                }
+                break;
             case 0x3: DDRB = value; break;
             case 0x4: LatchA = (ushort)((LatchA & 0xFF00) | value); break;
             case 0x5:
