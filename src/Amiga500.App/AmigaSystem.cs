@@ -172,12 +172,12 @@ public class AmigaSystem : ICustomRegisterDevice
             case 0x108: Denise.BPL1MOD = value; break;
             case 0x10A: Denise.BPL2MOD = value; break;
 
-            case 0x0E0: Denise.BPLPT[0] = (Denise.BPLPT[0] & 0x0000FFFF) | ((uint)value << 16); break;
-            case 0x0E2: Denise.BPLPT[0] = (Denise.BPLPT[0] & 0xFFFF0000) | value; break;
-            case 0x0E4: Denise.BPLPT[1] = (Denise.BPLPT[1] & 0x0000FFFF) | ((uint)value << 16); break;
-            case 0x0E6: Denise.BPLPT[1] = (Denise.BPLPT[1] & 0xFFFF0000) | value; break;
-            case 0x0E8: Denise.BPLPT[2] = (Denise.BPLPT[2] & 0x0000FFFF) | ((uint)value << 16); break;
-            case 0x0EA: Denise.BPLPT[2] = (Denise.BPLPT[2] & 0xFFFF0000) | value; break;
+            case 0x0E0: Denise.OnBplPointerWritten(0, (Denise.BPLPT[0] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0E2: Denise.OnBplPointerWritten(0, (Denise.BPLPT[0] & 0xFFFF0000) | value); break;
+            case 0x0E4: Denise.OnBplPointerWritten(1, (Denise.BPLPT[1] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0E6: Denise.OnBplPointerWritten(1, (Denise.BPLPT[1] & 0xFFFF0000) | value); break;
+            case 0x0E8: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0EA: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0xFFFF0000) | value); break;
 
             case >= 0x180 and <= 0x1BE: Denise.Color[(regOffset - 0x180) >> 1] = value; break;
         }
