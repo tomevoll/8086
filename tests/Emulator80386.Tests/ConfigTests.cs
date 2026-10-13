@@ -1,64 +1,41 @@
 using System.IO;
-using Emulator80386.App.Config;
+using Amiga500.Config;
 using Xunit;
 
-namespace Emulator80386.Tests
+namespace Amiga500.Tests;
+
+public class ConfigTests
 {
-    public class ConfigTests
+    [Fact]
+    public void DefaultConfig_HasCorrectAmiga500Defaults()
     {
-        [Fact]
-        public void TestDefaultConfigCreatedWhenFileMissing()
+        var config = new EmulatorConfig();
+        Assert.Equal("roms/kick13.rom", config.KickstartRomPath);
+        Assert.Equal(512, config.ChipRamKB);
+        Assert.Equal(VideoStandard.PAL, config.VideoStandard);
+        Assert.Equal(4, config.FloppyPaths.Length);
+        Assert.True(config.EnableAudio);
+    }
+
+    [Fact]
+    public void SaveAndLoadConfig_PersistsValues()
+    {
+        var config = new EmulatorConfig
         {
-            string tempFile = Path.Combine(Path.GetTempPath(), "test_config_missing.ini");
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            KickstartRomPath = "roms/test_kick.rom",
+            ChipRamKB = 1024,
+            VideoStandard = VideoStandard.NTSC
+        };
+        config.Save();
 
-            try
-            {
-                var config = EmulatorConfig.LoadFromFile(tempFile);
-                Assert.Equal(16, config.RamSizeMB);
-                Assert.Equal("roms/bios.bin", config.RomPath);
-                Assert.Equal("./hdd", config.DriveCFolder);
-                Assert.True(File.Exists(tempFile));
-            }
-            finally
-            {
-                if (File.Exists(tempFile)) File.Delete(tempFile);
-            }
-        }
+        var loaded = EmulatorConfig.Load();
+        Assert.Equal("roms/test_kick.rom", loaded.KickstartRomPath);
+        Assert.Equal(1024, loaded.ChipRamKB);
+        Assert.Equal(VideoStandard.NTSC, loaded.VideoStandard);
 
-        [Fact]
-        public void TestParseIniFile()
+        if (File.Exists("config.json"))
         {
-            string tempFile = Path.GetTempFileName();
-            string content = @"
-[Memory]
-RamSizeMB = 32
-
-[BIOS]
-RomPath = custom_bios.bin
-
-[Storage]
-DriveCFolder = /tmp/dos_hdd
-
-[Display]
-DisplayWidth = 800
-DisplayHeight = 600
-";
-            File.WriteAllText(tempFile, content);
-
-            try
-            {
-                var config = EmulatorConfig.LoadFromFile(tempFile);
-                Assert.Equal(32, config.RamSizeMB);
-                Assert.Equal("custom_bios.bin", config.RomPath);
-                Assert.Equal("/tmp/dos_hdd", config.DriveCFolder);
-                Assert.Equal(800, config.DisplayWidth);
-                Assert.Equal(600, config.DisplayHeight);
-            }
-            finally
-            {
-                if (File.Exists(tempFile)) File.Delete(tempFile);
-            }
+            File.Delete("config.json");
         }
     }
 }

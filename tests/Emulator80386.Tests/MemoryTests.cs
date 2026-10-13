@@ -1,74 +1,72 @@
-using Emulator80386.App.Memory;
+using Amiga500.Config;
+using Amiga500.IO;
+using Amiga500.Memory;
 using Xunit;
 
-namespace Emulator80386.Tests
+namespace Amiga500.Tests;
+
+public class MockCustomRegisters : ICustomRegisterDevice
 {
-    public class MemoryTests
+    public ushort[] Registers = new ushort[256];
+
+    public ushort ReadRegister(uint regOffset) => Registers[(regOffset & 0x1FE) >> 1];
+
+    public void WriteRegister(uint regOffset, ushort value)
     {
-        [Fact]
-        public void TestRamReadWrite()
-        {
-            var memory = new MemoryBus(16); // 16MB
-            memory.Write8(0x1000, 0x42);
-            Assert.Equal(0x42, memory.Read8(0x1000));
+        Registers[(regOffset & 0x1FE) >> 1] = value;
+    }
+}
 
-            memory.Write16(0x2000, 0x1234);
-            Assert.Equal(0x1234, memory.Read16(0x2000));
+public class MemoryTests
+{
+    [Fact]
+    public void MemoryBus_OverlayEnabled_ReadsRomAtZero()
+    {
+        var config = new EmulatorConfig { ChipRamKB = 512 };
+        byte[] rom = new byte[256 * 1024];
+        rom[0] = 0x12;
+        rom[1] = 0x34;
+        rom[2] = 0x56;
+        rom[3] = 0x78;
 
-            memory.Write32(0x3000, 0xDEADBEEF);
-            Assert.Equal(0xDEADBEEF, memory.Read32(0x3000));
-        }
+        var bus = new AmigaMemoryBus(config, rom);
+        Assert.True(bus.OverlayEnabled);
 
-        [Fact]
-        public void TestVramMapping()
-        {
-            var memory = new MemoryBus(16);
-            memory.Write8(0xB8000, (byte)'A');
-            memory.Write8(0xB8001, 0x07);
+        Assert.Equal(0x12345678u, bus.ReadLong(0));
 
-            Assert.Equal((byte)'A', memory.Read8(0xB8000));
-            Assert.Equal(0x07, memory.Read8(0xB8001));
-            Assert.Equal((byte)'A', memory.Vram[0x18000]);
-        }
+        // Disable Overlay
+        bus.OverlayEnabled = false;
+        bus.WriteLong(0, 0xAABBCCDD);
 
-        [Fact]
-        public void TestBiosRomMappingAndResetVector()
-        {
-            var memory = new MemoryBus(16);
-            byte[] mockBios = new byte[65536]; // 64KB
-            mockBios[mockBios.Length - 16] = 0xEA; // JMP instruction at reset vector
-            mockBios[mockBios.Length - 15] = 0x55;
-            mockBios[mockBios.Length - 14] = 0xAA;
+        Assert.Equal(0xAABBCCDDu, bus.ReadLong(0));
+    }
 
-            memory.LoadBiosRom(mockBios);
+    [Fact]
+    public void MemoryBus_Kickstart256K_MirrorsIn512KRange()
+    {
+        var config = new EmulatorConfig();
+        byte[] rom = new byte[256 * 1024];
+        rom[0] = 0xAA;
+        rom[256 * 1024 - 1] = 0xBB;
 
-            Assert.Equal(0xEA, memory.Read8(0xFFFF0));
-            Assert.Equal(0x55, memory.Read8(0xFFFF1));
+        var bus = new AmigaMemoryBus(config, rom);
 
-            Assert.Equal(0xEA, memory.Read8(0xFFFFFFF0));
-            Assert.Equal(0x55, memory.Read8(0xFFFFFFF1));
+        // $F80000 (first mirror)
+        Assert.Equal(0xAA, bus.ReadByte(0xF80000));
+        // $FC0000 (second mirror)
+        Assert.Equal(0xAA, bus.ReadByte(0xFC0000));
+    }
 
-            memory.Write8(0xFFFF0, 0x00);
-            Assert.Equal(0xEA, memory.Read8(0xFFFF0));
-        }
+    [Fact]
+    public void MemoryBus_CustomRegisters_ReadAndWriteWord()
+    {
+        var config = new EmulatorConfig();
+        var bus = new AmigaMemoryBus(config, new byte[256 * 1024]);
+        var mockCustom = new MockCustomRegisters();
+        bus.CustomRegisters = mockCustom;
 
-        [Fact]
-        public void TestOptionRomMappingAtC0000AndC8000()
-        {
-            var memory = new MemoryBus(16);
-            byte[] vgaRom = BiosLoader.LoadOrGenerateVgaOptionRom(vgaRomPath: "");
-            byte[] ideRom = BiosLoader.LoadOrGenerateIdeOptionRom(ideRomPath: "");
-
-            memory.LoadVgaOptionRom(vgaRom);
-            memory.LoadIdeOptionRom(ideRom);
-
-            // VGA Option ROM at 0xC0000 (0x55 0xAA magic header)
-            Assert.Equal(0x55, memory.Read8(0xC0000));
-            Assert.Equal(0xAA, memory.Read8(0xC0001));
-
-            // IDE Option ROM at 0xD0000 (0x55 0xAA magic header)
-            Assert.Equal(0x55, memory.Read8(0xD0000));
-            Assert.Equal(0xAA, memory.Read8(0xD0001));
-        }
+        bus.WriteWord(0xDFF180, 0x0F00); // COLOR00 = Red
+        Assert.Equal(0x0F00, bus.ReadWord(0xDFF180));
+        Assert.Equal(0x0F00, mockCustom.Registers[(0x180 & 0x1FE) >> 1]);
     }
 }

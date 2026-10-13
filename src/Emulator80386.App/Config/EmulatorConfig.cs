@@ -1,122 +1,57 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
 
-namespace Emulator80386.App.Config
+namespace Amiga500.Config;
+
+public enum VideoStandard
 {
-    public class EmulatorConfig
+    PAL,
+    NTSC
+}
+
+public class EmulatorConfig
+{
+    public string KickstartRomPath { get; set; } = "roms/kick13.rom";
+    public int ChipRamKB { get; set; } = 512; // 512 KB standard
+    public int SlowRamKB { get; set; } = 0;   // e.g. 512 KB trapdoor expansion ($C00000)
+    public int FastRamKB { get; set; } = 0;   // e.g. 2MB / 8MB fast RAM
+    public VideoStandard VideoStandard { get; set; } = VideoStandard.PAL;
+    public string?[] FloppyPaths { get; set; } = new string?[4]; // DF0, DF1, DF2, DF3
+    public float AudioVolume { get; set; } = 1.0f;
+    public bool EnableAudio { get; set; } = true;
+    public int DisplayScale { get; set; } = 2;
+
+    private const string ConfigFileName = "config.json";
+
+    public static EmulatorConfig Load()
     {
-        public int RamSizeMB { get; set; } = 16;
-        public string RomPath { get; set; } = "roms/bios.bin";
-        public string RomLowPath { get; set; } = "";
-        public string RomHighPath { get; set; } = "";
-        public string VgaRomPath { get; set; } = "roms/vgabios.bin";
-        public string IdeRomPath { get; set; } = "iderom.bin";
-        public string DriveCFolder { get; set; } = "./hdd";
-        public int DisplayWidth { get; set; } = 640;
-        public int DisplayHeight { get; set; } = 400;
-
-        public static EmulatorConfig LoadFromFile(string filePath)
+        if (File.Exists(ConfigFileName))
         {
-            var config = new EmulatorConfig();
-            if (!File.Exists(filePath))
+            try
             {
-                config.SaveToFile(filePath);
-                return config;
+                string json = File.ReadAllText(ConfigFileName);
+                var config = JsonSerializer.Deserialize<EmulatorConfig>(json);
+                if (config != null) return config;
             }
-
-            string currentSection = "";
-            var lines = File.ReadAllLines(filePath);
-            foreach (var rawLine in lines)
+            catch
             {
-                var line = rawLine.Trim();
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith(";") || line.StartsWith("#"))
-                    continue;
-
-                if (line.StartsWith("[") && line.EndsWith("]"))
-                {
-                    currentSection = line.Substring(1, line.Length - 2).Trim().ToLowerInvariant();
-                    continue;
-                }
-
-                var parts = line.Split('=', 2);
-                if (parts.Length != 2)
-                    continue;
-
-                var key = parts[0].Trim().ToLowerInvariant();
-                var value = parts[1].Trim();
-
-                switch (key)
-                {
-                    case "ramsizemb":
-                    case "ram_size_mb":
-                        if (int.TryParse(value, out int ram)) config.RamSizeMB = Math.Max(1, ram);
-                        break;
-                    case "rompath":
-                    case "rom_path":
-                    case "biospath":
-                        config.RomPath = value;
-                        break;
-                    case "romlowpath":
-                    case "rom_low_path":
-                    case "bioslowpath":
-                        config.RomLowPath = value;
-                        break;
-                    case "romhighpath":
-                    case "rom_high_path":
-                    case "bioshighpath":
-                        config.RomHighPath = value;
-                        break;
-                    case "vgarompath":
-                    case "vga_rom_path":
-                        config.VgaRomPath = value;
-                        break;
-                    case "iderompath":
-                    case "ide_rom_path":
-                        config.IdeRomPath = value;
-                        break;
-                    case "drivecfolder":
-                    case "drive_c_folder":
-                    case "hddpath":
-                        config.DriveCFolder = value;
-                        break;
-                    case "displaywidth":
-                    case "width":
-                        if (int.TryParse(value, out int w)) config.DisplayWidth = Math.Max(320, w);
-                        break;
-                    case "displayheight":
-                    case "height":
-                        if (int.TryParse(value, out int h)) config.DisplayHeight = Math.Max(200, h);
-                        break;
-                }
+                // Fall back to default on error
             }
-
-            return config;
         }
+        return new EmulatorConfig();
+    }
 
-        public void SaveToFile(string filePath)
+    public void Save()
+    {
+        try
         {
-            var lines = new List<string>
-            {
-                "[Memory]",
-                $"RamSizeMB={RamSizeMB}",
-                "",
-                "[BIOS]",
-                $"RomPath={RomPath}",
-                $"RomLowPath={RomLowPath}",
-                $"RomHighPath={RomHighPath}",
-                $"VgaRomPath={VgaRomPath}",
-                $"IdeRomPath={IdeRomPath}",
-                "",
-                "[Storage]",
-                $"DriveCFolder={DriveCFolder}",
-                "",
-                "[Display]",
-                $"DisplayWidth={DisplayWidth}",
-                $"DisplayHeight={DisplayHeight}"
-            };
-
-            File.WriteAllLines(filePath, lines);
+            string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigFileName, json);
+        }
+        catch
+        {
+            // Ignore save errors if read-only filesystem
         }
     }
 }
