@@ -10,6 +10,7 @@ public class AmigaMemoryBus : IMemoryBus
     public byte[]? SlowRam { get; private set; }
     public byte[]? FastRam { get; private set; }
     public byte[] KickstartRom { get; private set; }
+    public int KickstartRomSize { get; private set; }
 
     public bool OverlayEnabled { get; set; } = true;
 
@@ -29,24 +30,18 @@ public class AmigaMemoryBus : IMemoryBus
             FastRam = new byte[config.FastRamKB * 1024];
         }
 
-        KickstartRom = new byte[512 * 1024]; // Standard 256KB or 512KB space
-        if (romData.Length == 256 * 1024)
-        {
-            // Mirror 256KB twice in the 512KB ROM area
-            Array.Copy(romData, 0, KickstartRom, 0, 256 * 1024);
-            Array.Copy(romData, 0, KickstartRom, 256 * 1024, 256 * 1024);
-        }
-        else if (romData.Length <= 512 * 1024)
-        {
-            Array.Copy(romData, KickstartRom, romData.Length);
-        }
+        KickstartRom = new byte[512 * 1024];
+        LoadRom(romData);
     }
 
     public void LoadRom(byte[] romData)
     {
         Array.Clear(KickstartRom, 0, KickstartRom.Length);
+        KickstartRomSize = romData.Length;
+
         if (romData.Length == 256 * 1024)
         {
+            // Mirror 256KB twice into 512KB ROM area
             Array.Copy(romData, 0, KickstartRom, 0, 256 * 1024);
             Array.Copy(romData, 0, KickstartRom, 256 * 1024, 256 * 1024);
         }
@@ -60,60 +55,65 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // $000000 - $1FFFFF: Chip RAM / Overlay ROM (mirrored up to 2MB)
+        // $000000 - $1FFFFF: Chip RAM range
         if (address < 0x200000)
         {
-            if (OverlayEnabled && KickstartRom.Length > 0)
+            if (OverlayEnabled)
             {
-                uint romOffset = address % (uint)KickstartRom.Length;
-                return KickstartRom[romOffset];
+                if (address < 0x080000)
+                {
+                    uint romOffset = (KickstartRomSize == 512 * 1024)
+                        ? 0x40000 + (address & 0x3FFFF)
+                        : (address & 0x3FFFF);
+                    return KickstartRom[romOffset];
+                }
+                return 0xFF;
             }
-            if (ChipRam.Length > 0)
+
+            if (address < ChipRam.Length)
             {
-                uint chipOffset = address % (uint)ChipRam.Length;
-                return ChipRam[chipOffset];
+                return ChipRam[address];
             }
             return 0xFF;
         }
 
-        // $200000 - $9FFFFF: Fast RAM
+        // $200000 - $9FFFFF: Fast RAM expansion
         if (address >= 0x200000 && address < 0xA00000)
         {
             uint fastOffset = address - 0x200000;
-            if (FastRam != null && FastRam.Length > 0 && fastOffset < FastRam.Length)
+            if (FastRam != null && fastOffset < FastRam.Length)
             {
                 return FastRam[fastOffset];
             }
             return 0xFF;
         }
 
-        // CIA-A: $BFD000 - $BFDF00 (or $FFD000 via Absolute Short sign extension)
-        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) && (address & 0x00F000) == 0x00D000)
-        {
-            if (CiaA != null) return CiaA.ReadRegister(address);
-            return 0xFF;
-        }
-
-        // CIA-B: $BFE000 / $BF0000 (or $FFE000 via Absolute Short sign extension)
+        // CIA-A: $BFE000 - $BFEFFF or $FFE000 - $FFEFFF (odd byte lane $BFE001)
         if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
-            ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000))
+            (address & 0x00F000) == 0x00E000 && CiaA != null)
         {
-            if (CiaB != null) return CiaB.ReadRegister(address);
-            return 0xFF;
+            return CiaA.ReadRegister(address);
         }
 
-        // $C00000 - $CFFFFF: Slow / Trapdoor RAM ($C00000 - $C7FFFF, mirrored)
+        // CIA-B: $BFD000 - $BFDFFF or $FFD000 - $FFDFFF (even byte lane $BFD000)
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
+            ((address & 0x00F000) == 0x00D000 || (address & 0x00F000) == 0x0000) && CiaB != null)
+        {
+            return CiaB.ReadRegister(address);
+        }
+
+        // $C00000 - $CFFFFF: Slow / Trapdoor RAM ($C00000 - $C7FFFF)
         if (address >= 0xC00000 && address < 0xD00000)
         {
-            if (SlowRam != null && SlowRam.Length > 0)
+            uint slowOffset = address - 0xC00000;
+            if (SlowRam != null && slowOffset < SlowRam.Length)
             {
-                uint slowOffset = (address - 0xC00000) % (uint)SlowRam.Length;
                 return SlowRam[slowOffset];
             }
             return 0xFF;
         }
 
-        // $DFF000 - $DFFFFF or $FFF000 - $FFFFFF: Custom Chip Registers (mirrored every $200 bytes)
+        // $DFF000 - $DFFFFF or $FFF000 - $FFFFFF: Custom Chip Registers
         if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
@@ -126,10 +126,14 @@ public class AmigaMemoryBus : IMemoryBus
         }
 
         // $F80000 - $FFFFFF: Kickstart ROM
-        if (address >= 0xF80000 && KickstartRom.Length > 0)
+        if (address >= 0xF80000)
         {
-            uint romOffset = (address - 0xF80000) % (uint)KickstartRom.Length;
-            return KickstartRom[romOffset];
+            uint romOffset = address - 0xF80000;
+            if (romOffset < KickstartRom.Length)
+            {
+                return KickstartRom[romOffset];
+            }
+            return 0xFF;
         }
 
         return 0xFF;
@@ -139,7 +143,6 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // Custom register word access
         if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)
@@ -162,49 +165,49 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // $000000 - $1FFFFF: Chip RAM (mirrored up to 2MB)
+        // $000000 - $1FFFFF: Chip RAM
         if (address < 0x200000)
         {
-            if (ChipRam.Length > 0)
+            if (address < ChipRam.Length)
             {
-                uint chipOffset = address % (uint)ChipRam.Length;
-                ChipRam[chipOffset] = value;
+                ChipRam[address] = value;
             }
             return;
         }
 
-        // $200000 - $9FFFFF: Fast RAM
+        // $200000 - $9FFFFF: Fast RAM expansion
         if (address >= 0x200000 && address < 0xA00000)
         {
             uint fastOffset = address - 0x200000;
-            if (FastRam != null && FastRam.Length > 0 && fastOffset < FastRam.Length)
+            if (FastRam != null && fastOffset < FastRam.Length)
             {
                 FastRam[fastOffset] = value;
             }
             return;
         }
 
-        // CIA-A: $BFD000 or $FFD000
-        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) && (address & 0x00F000) == 0x00D000)
+        // CIA-A: $BFE000 - $BFEFFF or $FFE000 - $FFEFFF
+        if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
+            (address & 0x00F000) == 0x00E000 && CiaA != null)
         {
-            if (CiaA != null) CiaA.WriteRegister(address, value);
+            CiaA.WriteRegister(address, value);
             return;
         }
 
-        // CIA-B: $BFE000 / $BF0000 or $FFE000
+        // CIA-B: $BFD000 - $BFDFFF or $FFD000 - $FFDFFF
         if (((address & 0xFF0000) == 0xBF0000 || (address & 0xFF0000) == 0xFF0000) &&
-            ((address & 0x00F000) == 0x00E000 || (address & 0x00F000) == 0x0000))
+            ((address & 0x00F000) == 0x00D000 || (address & 0x00F000) == 0x0000) && CiaB != null)
         {
-            if (CiaB != null) CiaB.WriteRegister(address, value);
+            CiaB.WriteRegister(address, value);
             return;
         }
 
         // $C00000 - $CFFFFF: Slow / Trapdoor RAM
         if (address >= 0xC00000 && address < 0xD00000)
         {
-            if (SlowRam != null && SlowRam.Length > 0)
+            uint slowOffset = address - 0xC00000;
+            if (SlowRam != null && slowOffset < SlowRam.Length)
             {
-                uint slowOffset = (address - 0xC00000) % (uint)SlowRam.Length;
                 SlowRam[slowOffset] = value;
             }
             return;
@@ -216,11 +219,8 @@ public class AmigaMemoryBus : IMemoryBus
             if (CustomRegisters != null)
             {
                 uint regOffset = address & 0x1FE;
-                ushort current = CustomRegisters.ReadRegister(regOffset);
-                ushort updated = (address & 1) == 0
-                    ? (ushort)((value << 8) | (current & 0xFF))
-                    : (ushort)((current & 0xFF00) | value);
-                CustomRegisters.WriteRegister(regOffset, updated);
+                ushort wordValue = (address & 1) == 0 ? (ushort)(value << 8) : value;
+                CustomRegisters.WriteRegister(regOffset, wordValue);
             }
             return;
         }
@@ -230,7 +230,6 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & 0xFFFFFF;
 
-        // Custom register direct word write
         if ((address >= 0xDFF000 && address < 0xE00000) || address >= 0xFFF000)
         {
             if (CustomRegisters != null)

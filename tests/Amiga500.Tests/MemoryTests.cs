@@ -54,8 +54,8 @@ public class MemoryTests
 
         Assert.True(bus.OverlayEnabled);
 
-        // Kickstart writes 0x00 to $BFD000
-        bus.WriteByte(0xBFD000, 0x00);
+        // Kickstart writes 0x00 to $BFE001 (CIA-A PRA)
+        bus.WriteByte(0xBFE001, 0x00);
 
         Assert.False(bus.OverlayEnabled);
 

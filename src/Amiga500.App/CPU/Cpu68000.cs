@@ -549,15 +549,23 @@ public class Cpu68000
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
-        uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
-        uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
-        if ((opmode & 4) == 0) {
+        if ((opmode & 4) == 0) { // CMP
+            uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
+            uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
             SubWithFlags(D[reg], srcVal, sizeVal, updateX: false);
         } else {
-            uint res = ApplyBitwiseEor(srcVal, D[reg], sizeVal);
-            WriteEaAddress(mode, eaReg, sizeVal, addr, res);
-            SetNzFlags(res, sizeVal);
-            V = false; C = false;
+            if (mode == 1) { // CMPM (Ay)+, (Ax)+
+                uint srcVal = ReadEa(3, eaReg, sizeVal);
+                uint dstVal = ReadEa(3, reg, sizeVal);
+                SubWithFlags(dstVal, srcVal, sizeVal, updateX: false);
+            } else { // EOR
+                uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
+                uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
+                uint res = ApplyBitwiseEor(srcVal, D[reg], sizeVal);
+                WriteEaAddress(mode, eaReg, sizeVal, addr, res);
+                SetNzFlags(res, sizeVal);
+                V = false; C = false;
+            }
         }
         return 4;
     }
@@ -950,16 +958,31 @@ public class Cpu68000
         return (uint)(baseAddr + idxVal + disp);
     }
 
-    private uint ReadMemory(uint addr, int size) => size switch
+    private uint ReadMemory(uint addr, int size)
     {
-        1 => Memory.ReadByte(addr),
-        2 => Memory.ReadWord(addr),
-        4 => Memory.ReadLong(addr),
-        _ => 0
-    };
+        if (size > 1 && (addr & 1) != 0)
+        {
+            TriggerException(3); // Address Error Exception Vector 3
+            return 0;
+        }
+
+        return size switch
+        {
+            1 => Memory.ReadByte(addr),
+            2 => Memory.ReadWord(addr),
+            4 => Memory.ReadLong(addr),
+            _ => 0
+        };
+    }
 
     private void WriteMemory(uint addr, uint val, int size)
     {
+        if (size > 1 && (addr & 1) != 0)
+        {
+            TriggerException(3); // Address Error Exception Vector 3
+            return;
+        }
+
         switch (size)
         {
             case 1: Memory.WriteByte(addr, (byte)val); break;

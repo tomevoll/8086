@@ -25,6 +25,24 @@ public class SystemIntegrationTests
     }
 
     [Fact]
+    public void AmigaSystem_Kickstart31_512KRom_LoadsResetVectorFromSecond256K()
+    {
+        var config = new EmulatorConfig();
+        byte[] rom = new byte[512 * 1024];
+
+        // In 512KB ROM, reset vector is at offset 0x40000 ($FC0000)
+        rom[0x40000] = 0x00; rom[0x40001] = 0x08; rom[0x40002] = 0x00; rom[0x40003] = 0x00;
+        rom[0x40004] = 0x00; rom[0x40005] = 0xFC; rom[0x40006] = 0x00; rom[0x40007] = 0x02;
+
+        var system = new AmigaSystem(config, rom);
+
+        Assert.True(system.Booted);
+        Assert.Equal(0x00080000u, system.Cpu.A[7]);
+        Assert.Equal(0x00FC0002u, system.Cpu.PC);
+        Assert.True(system.Memory.OverlayEnabled);
+    }
+
+    [Fact]
     public void AmigaSystem_StepFrame_AdvancesRasterAndRendersFrame()
     {
         var config = new EmulatorConfig();
