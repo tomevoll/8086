@@ -198,6 +198,23 @@ public class AmigaSystem : ICustomRegisterDevice
             case 0x0E8: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0x0000FFFF) | ((uint)value << 16)); break;
             case 0x0EA: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0xFFFF0000) | value); break;
 
+            // Sprite Pointers 0-7 ($120 - $13E)
+            case >= 0x120 and <= 0x13E:
+                int sIdx = (int)((regOffset - 0x120) >> 2);
+                if ((regOffset & 2) == 0) Denise.Sprites[sIdx].Pointer = (Denise.Sprites[sIdx].Pointer & 0x0000FFFF) | ((uint)value << 16);
+                else Denise.Sprites[sIdx].Pointer = (Denise.Sprites[sIdx].Pointer & 0xFFFF0000) | value;
+                break;
+
+            // Sprite Position / Control / Data ($140 - $17E)
+            case >= 0x140 and <= 0x17E:
+                int spNum = (int)((regOffset - 0x140) >> 3);
+                int spReg = (int)((regOffset & 6) >> 1);
+                if (spReg == 0) Denise.Sprites[spNum].POS = value;
+                else if (spReg == 1) Denise.Sprites[spNum].CTL = value;
+                else if (spReg == 2) Denise.Sprites[spNum].DATA = value;
+                else if (spReg == 3) Denise.Sprites[spNum].DATB = value;
+                break;
+
             case >= 0x180 and <= 0x1BE: Denise.Color[(regOffset - 0x180) >> 1] = value; break;
         }
     }
@@ -208,6 +225,8 @@ public class AmigaSystem : ICustomRegisterDevice
 
         for (int line = 0; line < totalLines; line++)
         {
+            if (line == 0) Denise.OnVblank();
+
             for (int clock = 0; clock < 228; clock++)
             {
                 Agnus.StepColorClock();
