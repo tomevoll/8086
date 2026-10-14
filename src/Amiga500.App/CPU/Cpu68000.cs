@@ -327,6 +327,17 @@ public class Cpu68000
             A[reg] = PopLong();
             return 12;
         }
+        if ((opcode & 0xFFC0) == 0x4AC0) { // TAS
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            uint addr = ResolveEaAddress(mode, reg, 1);
+            byte val = (byte)ReadEaAddress(mode, reg, 1, addr);
+            SetNzFlags(val, 1);
+            V = false; C = false;
+            val |= 0x80;
+            WriteEaAddress(mode, reg, 1, addr, val);
+            return 12;
+        }
         if ((opcode & 0xFFB8) == 0x4800) { // EXT (.W or .L)
             int reg = opcode & 7;
             if ((opcode & 0x0040) != 0) {
@@ -397,6 +408,7 @@ public class Cpu68000
         }
         if (opcode == 0x4E71) return 4; // NOP
         if (opcode == 0x4E75) { PC = PopLong(); return 16; } // RTS
+        if (opcode == 0x4E76) { if (V) TriggerException(7); return 4; } // TRAPV
         if (opcode == 0x4E73) { // RTE - PREVENT STACK CORRUPTION: POP SR AND PC BEFORE ASSIGNING SR
             if (!Supervisor) { TriggerException(8); return 34; }
             ushort newSR = PopWord();
@@ -586,6 +598,30 @@ public class Cpu68000
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
+
+        // Check ADDX / SUBX
+        if ((opmode & 4) != 0 && (opcode & 0x0030) == 0x0000)
+        {
+            // SUBX
+            bool memMode = (opcode & 0x0008) != 0;
+            uint dst = memMode ? ReadEa(4, reg, sizeVal) : D[reg] & GetMask(sizeVal);
+            uint src = memMode ? ReadEa(4, eaReg, sizeVal) : D[eaReg] & GetMask(sizeVal);
+            uint mask = GetMask(sizeVal);
+            uint subx = (src + (X ? 1u : 0u)) & mask;
+            uint res = (dst - subx) & mask;
+            bool borrow = dst < subx;
+            uint signBit = 1u << (sizeVal * 8 - 1);
+            bool overflow = (((dst ^ src) & (dst ^ res) & signBit) != 0);
+
+            if (res != 0) Z = false;
+            N = (res & signBit) != 0;
+            V = overflow; C = borrow; X = borrow;
+
+            if (memMode) WriteEa(4, reg, sizeVal, res);
+            else D[reg] = SetBitRange(D[reg], res, sizeVal);
+            return 6;
+        }
+
         uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
         uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
         if ((opmode & 4) == 0) {
@@ -696,6 +732,29 @@ public class Cpu68000
         }
 
         int sizeVal = GetSizeFromOpMode(opmode);
+
+        // Check ADDX
+        if ((opmode & 4) != 0 && (opcode & 0x0030) == 0x0000)
+        {
+            bool memMode = (opcode & 0x0008) != 0;
+            uint dst = memMode ? ReadEa(4, reg, sizeVal) : D[reg] & GetMask(sizeVal);
+            uint src = memMode ? ReadEa(4, eaReg, sizeVal) : D[eaReg] & GetMask(sizeVal);
+            uint mask = GetMask(sizeVal);
+            uint addx = (src + (X ? 1u : 0u)) & mask;
+            uint res = (dst + addx) & mask;
+            bool carry = (dst + addx) > mask;
+            uint signBit = 1u << (sizeVal * 8 - 1);
+            bool overflow = (((dst ^ res) & (src ^ res) & signBit) != 0);
+
+            if (res != 0) Z = false;
+            N = (res & signBit) != 0;
+            V = overflow; C = carry; X = carry;
+
+            if (memMode) WriteEa(4, reg, sizeVal, res);
+            else D[reg] = SetBitRange(D[reg], res, sizeVal);
+            return 6;
+        }
+
         uint addr = ResolveEaAddress(mode, eaReg, sizeVal);
         uint srcVal = ReadEaAddress(mode, eaReg, sizeVal, addr);
         if ((opmode & 4) == 0) {
