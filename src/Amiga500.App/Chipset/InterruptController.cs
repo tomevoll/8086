@@ -25,18 +25,22 @@ public class InterruptController
         else INTREQ &= (ushort)~mask;
     }
 
-    public int GetPendingInterruptLevel()
+    public int GetPendingInterruptLevel(bool ciaA_Irq = false, bool ciaB_Irq = false)
     {
         if (!MasterEnable) return 0;
 
-        ushort active = (ushort)(INTENA & INTREQ & 0x3FFF);
+        ushort activeReq = INTREQ;
+        if (ciaA_Irq) activeReq |= 0x0008; // PORTS Level 2
+        if (ciaB_Irq) activeReq |= 0x2000; // EXTER Level 6
+
+        ushort active = (ushort)(INTENA & activeReq & 0x3FFF);
         if (active == 0) return 0;
 
         // Level 6: EXTER (bit 13), CLK (bit 12)
         if ((active & 0x3000) != 0) return 6;
 
-        // Level 5: DSKSYN (bit 11), RBF (bit 14/10)
-        if ((active & 0x0C00) != 0) return 5;
+        // Level 5: DSKSYN (bit 12), RBF (bit 11)
+        if ((active & 0x1800) != 0) return 5;
 
         // Level 4: AUD3 (bit 10), AUD2 (bit 9), AUD1 (bit 8), AUD0 (bit 7)
         if ((active & 0x0780) != 0) return 4;

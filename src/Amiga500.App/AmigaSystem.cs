@@ -219,10 +219,7 @@ public class AmigaSystem : ICustomRegisterDevice
                 Interrupts.INTREQ |= Paula.INTREQ; Paula.INTREQ = 0;
                 Interrupts.INTREQ |= Floppy.INTREQ; Floppy.INTREQ = 0;
 
-                if (CiaA.InterruptSignaled) Interrupts.INTREQ |= 0x0008;
-                if (CiaB.InterruptSignaled) Interrupts.INTREQ |= 0x2000;
-
-                Cpu.PendingInterruptLevel = Interrupts.GetPendingInterruptLevel();
+                Cpu.PendingInterruptLevel = Interrupts.GetPendingInterruptLevel(CiaA.InterruptSignaled, CiaB.InterruptSignaled);
 
                 Cpu.ExecuteInstruction();
             }
