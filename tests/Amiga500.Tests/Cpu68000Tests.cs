@@ -95,6 +95,30 @@ public class Cpu68000Tests
     }
 
     [Fact]
+    public void Execute_LinkAndUnlk()
+    {
+        _mem.WriteLong(0, 0x80000);
+        _mem.WriteLong(4, 0x1000);
+        _cpu.Reset();
+
+        // LINK A6, #-16 -> $4E56 FFF0
+        _mem.WriteWord(0x1000, 0x4E56);
+        _mem.WriteWord(0x1002, 0xFFF0);
+        _cpu.A[6] = 0x5000;
+
+        _cpu.ExecuteInstruction(); // LINK
+        Assert.Equal(0x7FFFCu, _cpu.A[6]);
+        Assert.Equal(0x7FFECu, _cpu.A[7]); // Stack decremented by 16 (0xFFF0 = -16)
+
+        // UNLK A6 -> $4E5E
+        _mem.WriteWord(0x1004, 0x4E5E);
+        _cpu.ExecuteInstruction(); // UNLK
+
+        Assert.Equal(0x5000u, _cpu.A[6]);
+        Assert.Equal(0x80000u, _cpu.A[7]);
+    }
+
+    [Fact]
     public void Execute_AddWithDisplacement_FetchesExtensionWordOnce()
     {
         _mem.WriteLong(0, 0x80000);

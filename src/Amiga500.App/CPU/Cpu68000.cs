@@ -305,6 +305,16 @@ public class Cpu68000
             A[reg] = GetEaAddress(eaMode, eaReg);
             return 4;
         }
+        if ((opcode & 0xF1C0) == 0x4180) { // CHK
+            int reg = (opcode >> 9) & 7;
+            int mode = (opcode >> 3) & 7;
+            int eaReg = opcode & 7;
+            short val = (short)ReadEa(mode, eaReg, 2);
+            short regVal = (short)D[reg];
+            if (regVal < 0) { N = true; TriggerException(6); }
+            else if (regVal > val) { N = false; TriggerException(6); }
+            return 10;
+        }
         if ((opcode & 0xFFF8) == 0x4840) { // SWAP
             int reg = opcode & 7;
             uint val = D[reg];
@@ -326,6 +336,58 @@ public class Cpu68000
             A[7] = A[reg];
             A[reg] = PopLong();
             return 12;
+        }
+        if ((opcode & 0xFFC0) == 0x40C0) { // MOVE from SR
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            WriteEa(mode, reg, 2, SR);
+            return 6;
+        }
+        if ((opcode & 0xFFC0) == 0x44C0) { // MOVE to CCR
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            ushort val = (ushort)ReadEa(mode, reg, 2);
+            SR = (ushort)((SR & 0xFF00) | (val & 0x00FF));
+            return 12;
+        }
+        if ((opcode & 0xFFC0) == 0x46C0) { // MOVE to SR
+            if (!Supervisor) { TriggerException(8); return 34; }
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            SR = (ushort)ReadEa(mode, reg, 2);
+            return 12;
+        }
+        if ((opcode & 0xFFC0) == 0x4000) { // NEGX
+            int size = GetSizeFromOpcode(opcode);
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            uint addr = ResolveEaAddress(mode, reg, size);
+            uint src = ReadEaAddress(mode, reg, size, addr);
+            uint mask = GetMask(size);
+            uint subx = (src + (X ? 1u : 0u)) & mask;
+            uint res = (0 - subx) & mask;
+            bool borrow = subx > 0;
+            if (res != 0) Z = false;
+            uint signBit = 1u << (size * 8 - 1);
+            N = (res & signBit) != 0;
+            V = (src & res & signBit) != 0;
+            C = borrow; X = borrow;
+            WriteEaAddress(mode, reg, size, addr, res);
+            return 6;
+        }
+        if ((opcode & 0xFFC0) == 0x4800 && (opcode & 0x0038) != 0x0000) { // NBCD
+            int mode = (opcode >> 3) & 7;
+            int reg = opcode & 7;
+            uint addr = ResolveEaAddress(mode, reg, 1);
+            byte src = (byte)ReadEaAddress(mode, reg, 1, addr);
+            int res = 0 - src - (X ? 1 : 0);
+            bool carry = false;
+            if (res < 0) { res += 100; carry = true; }
+            byte bcdRes = (byte)(((res / 10) << 4) | (res % 10));
+            if (bcdRes != 0) Z = false;
+            C = carry; X = carry;
+            WriteEaAddress(mode, reg, 1, addr, bcdRes);
+            return 6;
         }
         if ((opcode & 0xFFC0) == 0x4AC0) { // TAS
             int mode = (opcode >> 3) & 7;
@@ -560,7 +622,7 @@ public class Cpu68000
             int rem = dividend % src;
             if (quot > 32767 || quot < -32768) { V = true; }
             else {
-                D[reg] = (((uint)rem & 0xFFFFu) << 16) | ((uint)quot & 0xFFFFu);
+                D[reg] = (((uint)(ushort)(short)rem) << 16) | ((uint)(ushort)(short)quot);
                 SetNzFlags((ushort)(short)quot, 2);
                 V = false; C = false;
             }
