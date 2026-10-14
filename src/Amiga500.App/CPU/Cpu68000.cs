@@ -546,7 +546,7 @@ public class Cpu68000
             uint rem = dividend % src;
             if (quot > 0xFFFF) { V = true; }
             else {
-                D[reg] = (((uint)rem & 0xFFFFu) << 16) | ((uint)quot & 0xFFFFu);
+                D[reg] = (((uint)(ushort)(short)rem) << 16) | ((uint)(ushort)(short)quot);
                 SetNzFlags((ushort)quot, 2);
                 V = false; C = false;
             }
