@@ -195,16 +195,19 @@ public class Cpu68000
 
     private int ExecuteGroup0(ushort opcode)
     {
-        if (opcode == 0x003C) {
+        if (opcode == 0x003C) { // ORI to CCR
             ushort imm = FetchWord();
             SR = (ushort)((SR & 0xFF00) | ((SR | imm) & 0x00FF));
             return 20;
         }
-        if (opcode == 0x007C) {
+        if (opcode == 0x007C) { // ORI to SR
             ushort imm = FetchWord();
             if (!Supervisor) { TriggerException(8); return 34; }
             SR |= imm;
             return 20;
+        }
+        if ((opcode & 0x01C0) == 0x0180) { // MOVEP
+            return ExecuteMovep(opcode);
         }
         if ((opcode & 0xFF00) == 0x0200) return ExecuteAndi(opcode);
         if ((opcode & 0xFF00) == 0x0000) return ExecuteOri(opcode);
@@ -214,6 +217,50 @@ public class Cpu68000
         if ((opcode & 0xFF00) == 0x0400) return ExecuteSubi(opcode);
 
         return ExecuteBitOp(opcode);
+    }
+
+    private int ExecuteMovep(ushort opcode)
+    {
+        int reg = (opcode >> 9) & 7;
+        bool toMem = (opcode & 0x0080) != 0;
+        bool isLong = (opcode & 0x0040) != 0;
+        int areg = opcode & 7;
+        short disp = (short)FetchWord();
+        uint addr = (uint)(A[areg] + disp);
+
+        if (toMem)
+        {
+            if (isLong)
+            {
+                Memory.WriteByte(addr, (byte)(D[reg] >> 24));
+                Memory.WriteByte(addr + 2, (byte)(D[reg] >> 16));
+                Memory.WriteByte(addr + 4, (byte)(D[reg] >> 8));
+                Memory.WriteByte(addr + 6, (byte)D[reg]);
+            }
+            else
+            {
+                Memory.WriteByte(addr, (byte)(D[reg] >> 8));
+                Memory.WriteByte(addr + 2, (byte)D[reg]);
+            }
+        }
+        else
+        {
+            if (isLong)
+            {
+                uint b0 = Memory.ReadByte(addr);
+                uint b1 = Memory.ReadByte(addr + 2);
+                uint b2 = Memory.ReadByte(addr + 4);
+                uint b3 = Memory.ReadByte(addr + 6);
+                D[reg] = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+            }
+            else
+            {
+                uint b0 = Memory.ReadByte(addr);
+                uint b1 = Memory.ReadByte(addr + 2);
+                D[reg] = (D[reg] & 0xFFFF0000) | (b0 << 8) | b1;
+            }
+        }
+        return 24;
     }
 
     private int ExecuteMove(ushort opcode, int sizeCode)
@@ -265,6 +312,20 @@ public class Cpu68000
             SetNzFlags(D[reg], 4);
             V = false; C = false;
             return 4;
+        }
+        if ((opcode & 0xFFF8) == 0x4E50) { // LINK
+            int reg = opcode & 7;
+            short disp = (short)FetchWord();
+            PushLong(A[reg]);
+            A[reg] = A[7];
+            A[7] = (uint)(A[7] + disp);
+            return 16;
+        }
+        if ((opcode & 0xFFF8) == 0x4E58) { // UNLK
+            int reg = opcode & 7;
+            A[7] = A[reg];
+            A[reg] = PopLong();
+            return 12;
         }
         if ((opcode & 0xFFB8) == 0x4800) { // EXT (.W or .L)
             int reg = opcode & 7;
@@ -336,16 +397,19 @@ public class Cpu68000
         }
         if (opcode == 0x4E71) return 4; // NOP
         if (opcode == 0x4E75) { PC = PopLong(); return 16; } // RTS
-        if (opcode == 0x4E73) {
+        if (opcode == 0x4E73) { // RTE - PREVENT STACK CORRUPTION: POP SR AND PC BEFORE ASSIGNING SR
             if (!Supervisor) { TriggerException(8); return 34; }
-            SR = PopWord();
-            PC = PopLong();
+            ushort newSR = PopWord();
+            uint newPC = PopLong();
+            SR = newSR;
+            PC = newPC;
             return 20;
         }
-        if (opcode == 0x4E77) {
+        if (opcode == 0x4E77) { // RTR
             ushort ccr = PopWord();
+            uint newPC = PopLong();
             SR = (ushort)((SR & 0xFF00) | (ccr & 0x00FF));
-            PC = PopLong();
+            PC = newPC;
             return 20;
         }
         if (opcode == 0x4E70) {
@@ -393,7 +457,7 @@ public class Cpu68000
             int reg = opcode & 7;
             bool condVal = TestCondition(condition);
 
-            if (mode == 1) {
+            if (mode == 1) { // DBcc
                 short disp = (short)FetchWord();
                 if (!condVal) {
                     ushort count = (ushort)(D[reg] & 0xFFFF);
@@ -405,12 +469,12 @@ public class Cpu68000
                     }
                 }
                 return 12;
-            } else {
+            } else { // Scc
                 WriteEa(mode, reg, 1, condVal ? (byte)0xFF : (byte)0x00);
                 return condVal ? 8 : 10;
             }
         }
-        else {
+        else { // ADDQ / SUBQ
             uint val = (uint)((opcode >> 9) & 7);
             if (val == 0) val = 8;
             int size = GetSizeFromOpcode(opcode);
@@ -817,6 +881,43 @@ public class Cpu68000
         int mode = (opcode >> 3) & 7;
         int reg = opcode & 7;
         int size = GetSizeFromOpcode(opcode);
+        bool isMemoryShift = (opcode & 0x0020) == 0 && size == 3;
+
+        if (isMemoryShift)
+        {
+            size = 2; // Memory shift is always 1 word
+            int shiftTypeMem = (opcode >> 9) & 3;
+            bool left = (opcode & 0x0100) != 0;
+            uint addrMem = ResolveEaAddress(mode, reg, size);
+            uint valMem = ReadEaAddress(mode, reg, size, addrMem);
+
+            if (left)
+            {
+                bool msb = (valMem & 0x8000) != 0;
+                valMem = (valMem << 1) & 0xFFFF;
+                C = msb; X = msb;
+            }
+            else
+            {
+                bool lsb = (valMem & 1) != 0;
+                if (shiftTypeMem == 0) // ASR
+                {
+                    ushort msbBit = (ushort)(valMem & 0x8000);
+                    valMem = ((valMem >> 1) | msbBit) & 0xFFFF;
+                }
+                else
+                {
+                    valMem = (valMem >> 1) & 0xFFFF;
+                }
+                C = lsb; X = lsb;
+            }
+
+            WriteEaAddress(mode, reg, size, addrMem, valMem);
+            SetNzFlags(valMem, size);
+            V = false;
+            return 8;
+        }
+
         int shiftType = (opcode >> 3) & 3;
         bool dr = (opcode & 0x0100) != 0;
         bool ir = (opcode & 0x0020) != 0;
