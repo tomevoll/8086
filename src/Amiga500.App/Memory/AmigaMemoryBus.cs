@@ -81,7 +81,8 @@ public class AmigaMemoryBus : IMemoryBus
 
     public void UpdateOverlayFromCiaAPortA(byte pra)
     {
-        OverlayEnabled = (pra & 0x01) != 0;
+        // OVL bit on CIA-A PRA bit 0: 0 = Overlay enabled (ROM at $0), 1 = Overlay disabled (RAM at $0)
+        OverlayEnabled = (pra & 0x01) == 0;
     }
 
     private static bool IsCustom(uint address) => address >= CustomStart && address < CustomEnd;

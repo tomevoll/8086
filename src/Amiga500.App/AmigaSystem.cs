@@ -35,7 +35,7 @@ public class AmigaSystem : ICustomRegisterDevice
         Scheduler = new HardwareScheduler();
 
         Agnus = new Agnus(Memory, config.VideoStandard);
-        Denise = new Denise(Memory);
+        Denise = new Denise(Memory) { Agnus = Agnus };
         Paula = new PaulaAudio(Memory);
 
         CiaA = new Cia8520("CIA-A");
@@ -197,6 +197,12 @@ public class AmigaSystem : ICustomRegisterDevice
             case 0x0E6: Denise.OnBplPointerWritten(1, (Denise.BPLPT[1] & 0xFFFF0000) | value); break;
             case 0x0E8: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0x0000FFFF) | ((uint)value << 16)); break;
             case 0x0EA: Denise.OnBplPointerWritten(2, (Denise.BPLPT[2] & 0xFFFF0000) | value); break;
+            case 0x0EC: Denise.OnBplPointerWritten(3, (Denise.BPLPT[3] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0EE: Denise.OnBplPointerWritten(3, (Denise.BPLPT[3] & 0xFFFF0000) | value); break;
+            case 0x0F0: Denise.OnBplPointerWritten(4, (Denise.BPLPT[4] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0F2: Denise.OnBplPointerWritten(4, (Denise.BPLPT[4] & 0xFFFF0000) | value); break;
+            case 0x0F4: Denise.OnBplPointerWritten(5, (Denise.BPLPT[5] & 0x0000FFFF) | ((uint)value << 16)); break;
+            case 0x0F6: Denise.OnBplPointerWritten(5, (Denise.BPLPT[5] & 0xFFFF0000) | value); break;
 
             // Sprite Pointers 0-7 ($120 - $13E)
             case >= 0x120 and <= 0x13E:

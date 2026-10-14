@@ -1,4 +1,5 @@
 using System;
+using Amiga500.Chipset;
 using Amiga500.Memory;
 
 namespace Amiga500.GFX;
@@ -28,6 +29,8 @@ public class Denise
     public ushort DIWSTOP { get; set; } = 0xF4C1; // Window Stop (Default line $F4 = 244)
     public ushort DDFSTRT { get; set; } = 0x0038; // Data Fetch Start
     public ushort DDFSTOP { get; set; } = 0x00D0; // Data Fetch Stop
+
+    public Agnus? Agnus { get; set; }
 
     public uint[] BPLPT { get; } = new uint[6];         // Base registers set by CPU/Copper
     public uint[] BPLPT_Working { get; } = new uint[6]; // Working pointers during frame
@@ -94,8 +97,11 @@ public class Denise
         bool hires = (BPLCON0 & 0x8000) != 0;
         bool dualPlayfield = (BPLCON0 & 0x0400) != 0;
 
-        // Border line or 0 bitplanes
-        if (line < vstart || line > vstop || numPlanes == 0)
+        // Check Bitplane DMA enable (DMACON bit 8 = BPLEN, bit 9 = DMAEN)
+        bool bplDmaEnabled = Agnus == null || ((Agnus.DMACON & 0x0300) == 0x0300);
+
+        // Border line, 0 bitplanes, or Bitplane DMA disabled
+        if (line < vstart || line > vstop || numPlanes == 0 || !bplDmaEnabled)
         {
             for (int x = 0; x < 640; x++)
             {
@@ -188,16 +194,16 @@ public class Denise
             var sp = Sprites[s];
             if (sp.Pointer == 0) continue;
 
-            // Fetch sprite control words if at VStart
-            if (line == sp.VStart)
-            {
-                sp.POS = Memory.ReadWord(sp.Pointer);
-                sp.CTL = Memory.ReadWord(sp.Pointer + 2);
-                sp.Pointer += 4;
-            }
-
             if (line >= sp.VStart && line < sp.VStop)
             {
+                // Fetch control words on the very first line of sprite execution
+                if (line == sp.VStart)
+                {
+                    sp.POS = Memory.ReadWord(sp.Pointer);
+                    sp.CTL = Memory.ReadWord(sp.Pointer + 2);
+                    sp.Pointer += 4;
+                }
+
                 ushort spDataA = Memory.ReadWord(sp.Pointer);
                 ushort spDataB = Memory.ReadWord(sp.Pointer + 2);
                 sp.Pointer += 4;
