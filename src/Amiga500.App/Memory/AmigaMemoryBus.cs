@@ -24,7 +24,6 @@ public class AmigaMemoryBus : IMemoryBus
     private const uint CustomStart = 0x00DF0000;
     private const uint CustomEnd   = 0x00E00000;
 
-    private const uint RomStart256 = 0x00FC0000;
     private const uint RomStart512 = 0x00F80000;
     private const uint RomEnd      = 0x01000000;
 
@@ -34,6 +33,8 @@ public class AmigaMemoryBus : IMemoryBus
     public byte[] ChipRam { get; private set; }
     public byte[]? SlowRam { get; private set; }
     public byte[]? FastRam { get; private set; }
+
+    /// <summary>Always 512 KB. A 256 KB image is stored twice so $F80000 mirrors $FC0000.</summary>
     public byte[] KickstartRom { get; private set; }
 
     public bool OverlayEnabled { get; set; } = true;
@@ -83,25 +84,21 @@ public class AmigaMemoryBus : IMemoryBus
         OverlayEnabled = (pra & 0x01) != 0;
     }
 
+    private static bool IsCustom(uint address) => address >= CustomStart && address < CustomEnd;
+
     public byte ReadByte(uint rawAddress)
     {
         uint address = rawAddress & AddressMask;
 
+        // OVL=1: ROM is visible at $000000-$07FFFF (maps second 256KB where reset vectors live).
         if (OverlayEnabled && address < 0x00080000)
         {
-            int romOffset = (int)(address % (uint)KickstartSize);
-            if (KickstartSize == Rom512Size)
-            {
-                romOffset = (int)(0x40000 + (address & 0x3FFFF));
-            }
+            int romOffset = (int)(0x40000 + (address & 0x3FFFF));
             return KickstartRom[romOffset];
         }
 
         if (address < ChipRamEnd)
-        {
-            int offset = (int)(address % (uint)ChipRam.Length);
-            return ChipRam[offset];
-        }
+            return ChipRam[(int)(address % (uint)ChipRam.Length)];
 
         if (address >= FastRamStart && address < FastRamEnd)
         {
@@ -139,7 +136,7 @@ public class AmigaMemoryBus : IMemoryBus
             return 0xFF;
         }
 
-        if ((address >= CustomStart && address < CustomEnd) || address >= 0x00FFF000)
+        if (IsCustom(address))
         {
             if (CustomRegisters == null)
                 return 0xFF;
@@ -152,10 +149,11 @@ public class AmigaMemoryBus : IMemoryBus
                 : (byte)value;
         }
 
+        // Kickstart: $F80000-$FFFFFF.
         if (address >= RomStart512 && address < RomEnd)
         {
-            uint offset = (address - RomStart512) % (uint)KickstartSize;
-            return KickstartRom[(int)offset];
+            int offset = (int)((address - RomStart512) % (uint)KickstartRom.Length);
+            return KickstartRom[offset];
         }
 
         return 0xFF;
@@ -171,7 +169,12 @@ public class AmigaMemoryBus : IMemoryBus
             return 0;
         }
 
-        return (ushort)((ReadByte(address) << 8) | ReadByte(address + 1));
+        if (IsCustom(address))
+            return CustomRegisters != null ? CustomRegisters.ReadRegister(address & 0x1FE) : (ushort)0xFFFF;
+
+        return (ushort)(
+            (ReadByte(address) << 8) |
+             ReadByte(address + 1));
     }
 
     public uint ReadLong(uint rawAddress)
@@ -184,7 +187,8 @@ public class AmigaMemoryBus : IMemoryBus
             return 0;
         }
 
-        return ((uint)ReadWord(address) << 16) | ReadWord(address + 2);
+        return ((uint)ReadWord(address) << 16) |
+                ReadWord(address + 2);
     }
 
     public void WriteByte(uint rawAddress, byte value)
@@ -193,8 +197,7 @@ public class AmigaMemoryBus : IMemoryBus
 
         if (address < ChipRamEnd)
         {
-            int offset = (int)(address % (uint)ChipRam.Length);
-            ChipRam[offset] = value;
+            ChipRam[(int)(address % (uint)ChipRam.Length)] = value;
             return;
         }
 
@@ -234,17 +237,13 @@ public class AmigaMemoryBus : IMemoryBus
             return;
         }
 
-        if ((address >= CustomStart && address < CustomEnd) || address >= 0x00FFF000)
+        if (IsCustom(address))
         {
             if (CustomRegisters == null)
                 return;
 
             uint offset = address & 0x1FE;
-            ushort wordValue = (address & 1) == 0
-                ? (ushort)(value << 8)
-                : value;
-
-            CustomRegisters.WriteRegister(offset, wordValue);
+            CustomRegisters.WriteRegister(offset, (ushort)((value << 8) | value));
         }
     }
 
@@ -258,7 +257,7 @@ public class AmigaMemoryBus : IMemoryBus
             return;
         }
 
-        if ((address >= CustomStart && address < CustomEnd) || address >= 0x00FFF000)
+        if (IsCustom(address))
         {
             CustomRegisters?.WriteRegister(address & 0x1FE, value);
             return;

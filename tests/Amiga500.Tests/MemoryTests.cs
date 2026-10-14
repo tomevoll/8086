@@ -68,23 +68,6 @@ public class MemoryTests
     }
 
     [Fact]
-    public void MemoryBus_AbsoluteShortAddressDecoding_HandlesSignExtension()
-    {
-        var config = new EmulatorConfig { ChipRamKB = 512, SlowRamKB = 512 };
-        var bus = new AmigaMemoryBus(config, new byte[256 * 1024]);
-        var mockCustom = new MockCustomRegisters();
-        bus.CustomRegisters = mockCustom;
-
-        // Writing to $FFF180 (sign-extended ($F180).W) writes to custom registers
-        bus.WriteWord(0xFFF180, 0x00F0);
-        Assert.Equal(0x00F0, bus.ReadWord(0xDFF180));
-
-        // Slow RAM at $C00000
-        bus.WriteWord(0xC00000, 0x1234);
-        Assert.Equal(0x1234, bus.ReadWord(0xC00000));
-    }
-
-    [Fact]
     public void MemoryBus_Kickstart256K_MirrorsIn512KRange()
     {
         var config = new EmulatorConfig();
