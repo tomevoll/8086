@@ -46,6 +46,8 @@ public class FloppyController
     public ushort DSKSYNC { get; set; } = 0x4489;
     public ushort INTREQ { get; set; }
 
+    private bool _prevStepState = false;
+
     public AmigaMemoryBus Memory { get; set; }
 
     public FloppyController(AmigaMemoryBus memory)
@@ -71,7 +73,10 @@ public class FloppyController
 
     public void UpdateControlSignals(byte ciaB_Prb, byte ciaA_Pra)
     {
-        bool stepPulse = (ciaB_Prb & 0x01) == 0;
+        bool stepActive = (ciaB_Prb & 0x01) == 0;
+        bool fallingEdgeStep = stepActive && !_prevStepState; // Detect falling edge (1 -> 0) on /STEP line
+        _prevStepState = stepActive;
+
         bool dirIn = (ciaB_Prb & 0x02) == 0;
         int side = (ciaB_Prb & 0x04) == 0 ? 1 : 0;
         bool motorOn = (ciaB_Prb & 0x80) == 0;
@@ -92,7 +97,7 @@ public class FloppyController
             {
                 Drives[i].MotorOn = motorOn;
                 Drives[i].CurrentSide = side;
-                if (stepPulse) Drives[i].Step(dirIn);
+                if (fallingEdgeStep) Drives[i].Step(dirIn);
             }
         }
     }

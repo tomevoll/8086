@@ -81,7 +81,7 @@ public class AmigaMemoryBus : IMemoryBus
 
     public void UpdateOverlayFromCiaAPortA(byte pra)
     {
-        // OVL bit on CIA-A PRA bit 0: 0 = Overlay enabled (ROM at $0), 1 = Overlay disabled (RAM at $0)
+        // CIA-A PRA bit 0 (OVL): 0 = Overlay active / ROM visible at $000000; 1 = Overlay disabled / Chip RAM at $000000
         OverlayEnabled = (pra & 0x01) == 0;
     }
 
@@ -91,11 +91,11 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & AddressMask;
 
-        // OVL=1: ROM is visible at $000000-$07FFFF (maps second 256KB where reset vectors live).
+        // Overlay enabled: Kickstart ROM mapped at $000000-$07FFFF (reset vectors live in top 256KB at $40000)
         if (OverlayEnabled && address < 0x00080000)
         {
             int romOffset = (int)(0x40000 + (address & 0x3FFFF));
-            return KickstartRom[romOffset];
+            return KickstartRom[romOffset % KickstartRom.Length];
         }
 
         if (address < ChipRamEnd)

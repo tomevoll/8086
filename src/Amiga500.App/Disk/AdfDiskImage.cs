@@ -68,7 +68,7 @@ public class AdfDiskImage
         }
     }
 
-    // Encodes a complete 11-sector Amiga MFM track with sync words ($4489)
+    // Encodes a complete 11-sector Amiga MFM track with sync words ($4489) following standard Amiga trackdisk layout
     public ushort[] GenerateTrackMfm(int cylinder, int side)
     {
         int trackNumber = (cylinder * 2) + side;
@@ -91,33 +91,77 @@ public class AdfDiskImage
             byte secsToGap = (byte)(11 - s);
 
             uint headerInfo = ((uint)formatByte << 24) | ((uint)trackByte << 16) | ((uint)sectorByte << 8) | secsToGap;
-            EncodeMfmLong(mfm, ref idx, headerInfo);
-            EncodeMfmLong(mfm, ref idx, 0x00000000); // Header OS sector label
 
-            // Sector Data (512 bytes = 128 longs)
+            // Header info & 16-byte sector label
+            uint[] headerAndLabel = new uint[5];
+            headerAndLabel[0] = headerInfo;
+
+            uint oddHeader = (headerAndLabel[0] >> 1) & 0x55555555u;
+            uint evenHeader = headerAndLabel[0] & 0x55555555u;
+
+            mfm[idx++] = (ushort)(oddHeader >> 16);
+            mfm[idx++] = (ushort)(oddHeader & 0xFFFF);
+            mfm[idx++] = (ushort)(evenHeader >> 16);
+            mfm[idx++] = (ushort)(evenHeader & 0xFFFF);
+
+            // 16 bytes OS label (4 longs)
+            for (int l = 1; l < 5; l++)
+            {
+                mfm[idx++] = 0x0000;
+                mfm[idx++] = 0x0000;
+                mfm[idx++] = 0x0000;
+                mfm[idx++] = 0x0000;
+            }
+
+            // Header checksum
+            uint headerChecksum = oddHeader ^ evenHeader;
+            mfm[idx++] = (ushort)(headerChecksum >> 16);
+            mfm[idx++] = (ushort)(headerChecksum & 0xFFFF);
+            mfm[idx++] = 0x0000;
+            mfm[idx++] = 0x0000;
+
+            // Sector Data (512 bytes = 128 longs) split into 128 odd longs then 128 even longs
             byte[] sectorBytes = GetSectorData(cylinder, side, s);
+            uint[] dataLongs = new uint[128];
+            uint[] oddDataLongs = new uint[128];
+            uint[] evenDataLongs = new uint[128];
+            uint dataChecksum = 0;
+
             for (int l = 0; l < 128; l++)
             {
-                uint val = ((uint)sectorBytes[l * 4] << 24) |
-                           ((uint)sectorBytes[l * 4 + 1] << 16) |
-                           ((uint)sectorBytes[l * 4 + 2] << 8) |
-                           sectorBytes[l * 4 + 3];
-                EncodeMfmLong(mfm, ref idx, val);
+                dataLongs[l] = ((uint)sectorBytes[l * 4] << 24) |
+                               ((uint)sectorBytes[l * 4 + 1] << 16) |
+                               ((uint)sectorBytes[l * 4 + 2] << 8) |
+                               sectorBytes[l * 4 + 3];
+
+                oddDataLongs[l] = (dataLongs[l] >> 1) & 0x55555555u;
+                evenDataLongs[l] = dataLongs[l] & 0x55555555u;
+
+                dataChecksum ^= oddDataLongs[l] ^ evenDataLongs[l];
+            }
+
+            // Data checksum long
+            mfm[idx++] = (ushort)(dataChecksum >> 16);
+            mfm[idx++] = (ushort)(dataChecksum & 0xFFFF);
+            mfm[idx++] = 0x0000;
+            mfm[idx++] = 0x0000;
+
+            // 128 odd longs
+            for (int l = 0; l < 128; l++)
+            {
+                mfm[idx++] = (ushort)(oddDataLongs[l] >> 16);
+                mfm[idx++] = (ushort)(oddDataLongs[l] & 0xFFFF);
+            }
+
+            // 128 even longs
+            for (int l = 0; l < 128; l++)
+            {
+                mfm[idx++] = (ushort)(evenDataLongs[l] >> 16);
+                mfm[idx++] = (ushort)(evenDataLongs[l] & 0xFFFF);
             }
         }
 
         while (idx < mfm.Length) mfm[idx++] = 0xAAAA;
         return mfm;
-    }
-
-    private static void EncodeMfmLong(ushort[] mfm, ref int idx, uint value)
-    {
-        uint oddBits = (value >> 1) & 0x55555555u;
-        uint evenBits = value & 0x55555555u;
-
-        mfm[idx++] = (ushort)(oddBits >> 16);
-        mfm[idx++] = (ushort)(oddBits & 0xFFFF);
-        mfm[idx++] = (ushort)(evenBits >> 16);
-        mfm[idx++] = (ushort)(evenBits & 0xFFFF);
     }
 }

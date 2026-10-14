@@ -233,6 +233,8 @@ public class AmigaSystem : ICustomRegisterDevice
         {
             if (line == 0) Denise.OnVblank();
 
+            int cpuCyclesPacing = 0;
+
             for (int clock = 0; clock < 228; clock++)
             {
                 Agnus.StepColorClock();
@@ -245,7 +247,13 @@ public class AmigaSystem : ICustomRegisterDevice
 
                 Cpu.PendingInterruptLevel = Interrupts.GetPendingInterruptLevel(CiaA.InterruptSignaled, CiaB.InterruptSignaled);
 
-                Cpu.ExecuteInstruction();
+                // PAL M68000 runs at 7.09379 MHz (~2 CPU cycles per 3.546895 MHz color clock)
+                cpuCyclesPacing += 2;
+                while (cpuCyclesPacing > 0)
+                {
+                    int consumed = Cpu.ExecuteInstruction();
+                    cpuCyclesPacing -= consumed;
+                }
             }
 
             Denise.RenderScanline(line);
