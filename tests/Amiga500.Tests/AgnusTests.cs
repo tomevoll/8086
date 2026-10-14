@@ -114,4 +114,23 @@ public class AgnusTests
         Assert.Equal(0x5678, bus.ReadWord(0x3002));
         Assert.True((agnus.INTREQ & 0x0040) != 0); // Blitter interrupt
     }
+
+    [Fact]
+    public void Blitter_ModulosAndShifts_AppliesCorrectOffsets()
+    {
+        var config = new EmulatorConfig();
+        byte[] rom = new byte[256 * 1024];
+        var system = new AmigaSystem(config, rom);
+
+        // Test writing Blitter Modulo registers at $060 (C), $062 (B), $064 (A), $066 (D)
+        system.WriteRegister(0x060, 10);
+        system.WriteRegister(0x062, 20);
+        system.WriteRegister(0x064, 30);
+        system.WriteRegister(0x066, 40);
+
+        Assert.Equal(10, system.Agnus.BLTCMOD);
+        Assert.Equal(20, system.Agnus.BLTBMOD);
+        Assert.Equal(30, system.Agnus.BLTAMOD);
+        Assert.Equal(40, system.Agnus.BLTDMOD);
+    }
 }

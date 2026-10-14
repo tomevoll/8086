@@ -115,10 +115,10 @@ public class AmigaSystem : ICustomRegisterDevice
             0x052 => (ushort)(Agnus.BLTAPTH & 0xFFFF),
             0x054 => (ushort)(Agnus.BLTDPTH >> 16),
             0x056 => (ushort)(Agnus.BLTDPTH & 0xFFFF),
+            0x060 => (ushort)Agnus.BLTCMOD,
+            0x062 => (ushort)Agnus.BLTBMOD,
             0x064 => (ushort)Agnus.BLTAMOD,
-            0x066 => (ushort)Agnus.BLTBMOD,
-            0x068 => (ushort)Agnus.BLTCMOD,
-            0x06A => (ushort)Agnus.BLTDMOD,
+            0x066 => (ushort)Agnus.BLTDMOD,
             0x070 => Agnus.BLTCDAT,
             0x072 => Agnus.BLTBDAT,
             0x074 => Agnus.BLTADAT,
@@ -142,7 +142,6 @@ public class AmigaSystem : ICustomRegisterDevice
 
             // Blitter Registers
             case 0x040: Agnus.BLTCON0 = value; break;
-            case 0x041: Agnus.BLTCON1 = value; break;
             case 0x042: Agnus.BLTCON1 = value; break;
             case 0x044: Agnus.BLTAFWM = value; break;
             case 0x046: Agnus.BLTALWM = value; break;
@@ -155,10 +154,10 @@ public class AmigaSystem : ICustomRegisterDevice
             case 0x054: Agnus.BLTDPTH = (Agnus.BLTDPTH & 0x0000FFFF) | ((uint)value << 16); break;
             case 0x056: Agnus.BLTDPTH = (Agnus.BLTDPTH & 0xFFFF0000) | value; break;
             case 0x058: Agnus.TriggerBlitter(value); break;
+            case 0x060: Agnus.BLTCMOD = (short)value; break;
+            case 0x062: Agnus.BLTBMOD = (short)value; break;
             case 0x064: Agnus.BLTAMOD = (short)value; break;
-            case 0x066: Agnus.BLTBMOD = (short)value; break;
-            case 0x068: Agnus.BLTCMOD = (short)value; break;
-            case 0x06A: Agnus.BLTDMOD = (short)value; break;
+            case 0x066: Agnus.BLTDMOD = (short)value; break;
             case 0x070: Agnus.BLTCDAT = value; break;
             case 0x072: Agnus.BLTBDAT = value; break;
             case 0x074: Agnus.BLTADAT = value; break;

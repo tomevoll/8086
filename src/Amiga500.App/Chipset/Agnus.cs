@@ -104,7 +104,6 @@ public class Agnus
         if ((inst1 & 1) == 0) // MOVE Instruction: Inst1 = RegOffset, Inst2 = Value
         {
             uint regOffset = (uint)(inst1 & 0x01FE);
-            // Copper write restriction: cannot write to registers below $080 if CDANG bit in COPCON is not set
             if (regOffset >= 0x080)
             {
                 Memory.WriteWord(0xDFF000 + regOffset, inst2);
@@ -155,26 +154,33 @@ public class Agnus
         byte minterm = (byte)(BLTCON0 & 0xFF);
         int shiftA = (BLTCON0 >> 12) & 0x0F;
         int shiftB = (BLTCON1 >> 12) & 0x0F;
-        bool fillMode = (BLTCON1 & 0x0018) != 0;
         bool desc = (BLTCON1 & 0x0002) != 0; // Descending direction
 
         int step = desc ? -2 : 2;
 
         for (int h = 0; h < height; h++)
         {
+            uint prevA = 0;
+            uint prevB = 0;
+
             for (int w = 0; w < widthWords; w++)
             {
-                ushort aVal = useA ? Memory.ReadWord(BLTAPTH) : BLTADAT;
-                ushort bVal = useB ? Memory.ReadWord(BLTBPTH) : BLTBDAT;
+                ushort rawA = useA ? Memory.ReadWord(BLTAPTH) : BLTADAT;
+                ushort rawB = useB ? Memory.ReadWord(BLTBPTH) : BLTBDAT;
                 ushort cVal = useC ? Memory.ReadWord(BLTCPTH) : BLTCDAT;
 
-                // First and last word masking on channel A
+                // 32-bit shift hold registers
+                uint a32 = (prevA << 16) | rawA;
+                uint b32 = (prevB << 16) | rawB;
+                prevA = rawA;
+                prevB = rawB;
+
+                ushort aVal = (ushort)(a32 >> shiftA);
+                ushort bVal = (ushort)(b32 >> shiftB);
+
+                // First and last word masks on channel A
                 if (w == 0) aVal &= BLTAFWM;
                 if (w == widthWords - 1) aVal &= BLTALWM;
-
-                // Shifts
-                if (shiftA > 0) aVal = (ushort)(aVal >> shiftA);
-                if (shiftB > 0) bVal = (ushort)(bVal >> shiftB);
 
                 // Minterm logic calculation
                 ushort dVal = EvaluateMinterm(minterm, aVal, bVal, cVal);
@@ -190,7 +196,7 @@ public class Agnus
                 if (useC) BLTCPTH = (uint)(BLTCPTH + step);
             }
 
-            // Apply modulo at end of scanline
+            // Apply modulos at end of scanline
             if (useA) BLTAPTH = (uint)(BLTAPTH + (desc ? -BLTAMOD : BLTAMOD));
             if (useB) BLTBPTH = (uint)(BLTBPTH + (desc ? -BLTBMOD : BLTBMOD));
             if (useC) BLTCPTH = (uint)(BLTCPTH + (desc ? -BLTCMOD : BLTCMOD));
