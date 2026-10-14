@@ -57,8 +57,8 @@ public class MemoryTests
         // Kickstart sets DDRA bit 0 to output
         ciaA.DDRA = 0x01;
 
-        // Kickstart writes 0x01 to $BFE001 (CIA-A PRA) to turn off overlay (OVL=1 turns off overlay)
-        bus.WriteByte(0xBFE001, 0x01);
+        // Kickstart writes 0x00 to $BFE001 (CIA-A PRA) to turn off overlay (OVL=0 turns off overlay)
+        bus.WriteByte(0xBFE001, 0x00);
 
         Assert.False(bus.OverlayEnabled);
 

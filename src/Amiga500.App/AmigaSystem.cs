@@ -97,7 +97,7 @@ public class AmigaSystem : ICustomRegisterDevice
         {
             0x002 => Agnus.DMACON,
             0x004 => (ushort)((Agnus.VPOS << 8) | ((Agnus.VPOS >> 8) & 1)),
-            0x006 => (ushort)(Agnus.HPOS & 0xFF),
+            0x006 => (ushort)(((Agnus.VPOS & 0xFF) << 8) | (Agnus.HPOS & 0xFF)),
             0x01A => 0x0000, // DSKBYTR
             0x01C => Interrupts.INTENA,
             0x01E => Interrupts.INTREQ,

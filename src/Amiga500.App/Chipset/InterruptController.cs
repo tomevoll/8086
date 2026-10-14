@@ -36,8 +36,8 @@ public class InterruptController
         ushort active = (ushort)(INTENA & activeReq & 0x3FFF);
         if (active == 0) return 0;
 
-        // Level 6: EXTER (bit 13), CLK (bit 12)
-        if ((active & 0x3000) != 0) return 6;
+        // Level 6: EXTER (bit 13)
+        if ((active & 0x2000) != 0) return 6;
 
         // Level 5: DSKSYN (bit 12), RBF (bit 11)
         if ((active & 0x1800) != 0) return 5;
