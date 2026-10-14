@@ -221,7 +221,7 @@ public class AmigaSystem : ICustomRegisterDevice
                 else if (spReg == 3) Denise.Sprites[spNum].DATB = value;
                 break;
 
-            case >= 0x180 and <= 0x1BE: Denise.Color[(regOffset - 0x180) >> 1] = value; break;
+            case >= 0x180 and <= 0x1BE: Denise.Color[(regOffset - 0x180) >> 1] = (ushort)(value & 0x0FFF); break;
         }
     }
 
@@ -234,16 +234,27 @@ public class AmigaSystem : ICustomRegisterDevice
             if (line == 0) Denise.OnVblank();
 
             int cpuCyclesPacing = 0;
+            int eClockDivider = 0;
 
             for (int clock = 0; clock < 228; clock++)
             {
                 Agnus.StepColorClock();
-                CiaA.StepEClock(1);
-                CiaB.StepEClock(1);
+
+                // E-clock runs at 1/5th of the color clock rate (~709 kHz PAL)
+                eClockDivider++;
+                if (eClockDivider >= 5)
+                {
+                    eClockDivider = 0;
+                    CiaA.StepEClock(1);
+                    CiaB.StepEClock(1);
+                }
 
                 Interrupts.INTREQ |= Agnus.INTREQ; Agnus.INTREQ = 0;
                 Interrupts.INTREQ |= Paula.INTREQ; Paula.INTREQ = 0;
                 Interrupts.INTREQ |= Floppy.INTREQ; Floppy.INTREQ = 0;
+
+                if (CiaA.InterruptSignaled) Interrupts.INTREQ |= 0x0008; // PORTS bit 3
+                if (CiaB.InterruptSignaled) Interrupts.INTREQ |= 0x2000; // EXTER bit 13
 
                 Cpu.PendingInterruptLevel = Interrupts.GetPendingInterruptLevel(CiaA.InterruptSignaled, CiaB.InterruptSignaled);
 
