@@ -91,10 +91,10 @@ public class AmigaMemoryBus : IMemoryBus
     {
         uint address = rawAddress & AddressMask;
 
-        // Overlay enabled: Kickstart ROM mapped at $000000-$07FFFF (reset vectors live in top 256KB at $40000)
+        // Overlay enabled: Kickstart ROM mapped directly at $000000-$07FFFF
         if (OverlayEnabled && address < 0x00080000)
         {
-            int romOffset = (int)(0x40000 + (address & 0x3FFFF));
+            int romOffset = (int)(address & 0x7FFFF);
             return KickstartRom[romOffset % KickstartRom.Length];
         }
 
